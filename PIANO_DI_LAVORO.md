@@ -52,9 +52,279 @@ Collaudo, relazione, video, pacchetto. Il video si registra su un'applicazione g
 
 La Fase 12, le estensioni facoltative, sta fuori da questa scala: la si affronta solo se avanza tempo dopo la Tappa 6, e solo su ciò che si riesce a fare bene.
 
+## Capitolo introduttivo — Come funziona questa applicazione
+
+Prima delle fasi, la macchina. Questo capitolo spiega i concetti su cui si regge tutto il progetto e li aggancia ai file veri della struttura. Le fasi che seguono danno per acquisito quello che c'è scritto qui, e ci rimandano indietro ogni volta che serve.
+
+Se hai già esperienza con applicazioni web, leggilo comunque: la sezione §7 fissa la terminologia usata nel resto del documento.
+
+---
+
+### §1 I due mondi: browser e server
+
+Un'applicazione web è **due programmi separati che si parlano per messaggi**. Non è un programma solo.
+
+Da una parte il **browser**, sulla macchina dell'utente. Sa disegnare pagine e inviare richieste. Non ha accesso al database e non esegue nessuna delle vostre regole.
+
+Dall'altra il **server**, cioè la vostra applicazione Flask. Riceve richieste, decide, legge e scrive sul database, e restituisce pagine già pronte.
+
+Fra i due passano soltanto due tipi di messaggio: una **richiesta** (l'utente chiede qualcosa) e una **risposta** (il server manda l'HTML). Nient'altro.
+
+Da questa separazione discende la conseguenza più importante di tutto il progetto:
+
+> **Tutto ciò che sta nel browser è modificabile dall'utente.** Un campo `required` in un form, un pulsante nascosto, un menu a tendina con soli valori validi: sono comodità per l'utente onesto, non protezioni. Chiunque può inviare al server una richiesta costruita a mano, senza passare dalla vostra pagina.
+
+Perciò ogni validazione fatta nel browser deve avere la sua copia sul server, e ogni comando nascosto deve essere comunque rifiutato lato server se chi lo invia non ne ha diritto. Nel piano questo principio ritorna in Fase 6, in Fase 7.5 e in Fase 9: è sempre lo stesso.
+
+C'è poi una seconda conseguenza, meno ovvia: **il protocollo non ha memoria**. Ogni richiesta arriva al server come se fosse la prima. Il server non "ricorda" chi sei fra una pagina e l'altra. Il ricordo viene ricostruito ogni volta a partire da un **cookie di sessione** firmato, ed è esattamente il lavoro che fa Flask-Login (sezione §4).
+
+---
+
+### §2 Il percorso di una richiesta in lettura
+
+Questa è la sequenza che si ripete, identica, per ogni pagina dell'applicazione. Cambiano i nomi, non la forma.
+
+```
+   ①               ②              ③              ④
+BROWSER  ─────>  FLASK  ─────>  ROUTE  ─────>  MODELLI  ─────>  DATABASE
+chiede           trova la       controlla      traducono        PostgreSQL
+un URL           funzione       i permessi     in SQL
+                 giusta         e chiede
+                                i dati
+                                    │                                │
+                                    │        oggetti Python          │
+                                    │ <──────────────────────────────┘
+                                    ▼
+                                 ⑤ TEMPLATE  ─────>  ⑥ HTML  ─────>  BROWSER
+                                   riempie                            mostra
+                                   la pagina                          la pagina
+```
+
+Ora la stessa sequenza sui file veri. Uno studente clicca su **"Le mie pratiche"**.
+
+**① Il browser chiede `/studente/pratiche`.**
+
+**② Flask cerca chi risponde a quell'indirizzo.** In `app/__init__.py` è registrato che tutto ciò che comincia per `/studente/` è gestito dal blueprint definito in `app/blueprints/studente.py`. Lì dentro Flask trova la funzione con sopra scritto `@studente_bp.route("/pratiche")`. Quella funzione si chiama **route** (o *vista*): è il punto di ingresso di quella pagina.
+
+**③ La route controlla chi sei, prima di ogni altra cosa.** Lo fa con i decoratori, cioè le righe che stanno sopra la funzione:
+
+```python
+@studente_bp.route("/pratiche")
+@login_required                        # sei entrato?
+@ruolo_richiesto(Ruolo.STUDENTE)       # sei uno studente?
+def elenco_pratiche():
+```
+
+`@login_required` viene da Flask-Login, `@ruolo_richiesto` è vostro e sta in `app/security.py`.
+
+**④ La route chiede i dati.** Scrive una query con l'ORM:
+
+```python
+pratiche = db.session.scalars(
+    db.select(Pratica).where(Pratica.studente_id == current_user.id)
+).all()
+```
+
+SQLAlchemy legge la classe `Pratica` in `app/models.py`, capisce che corrisponde alla tabella `pratica`, traduce in SQL vero — `SELECT ... FROM pratica WHERE studente_id = 12` — lo manda a PostgreSQL e riceve righe. Poi **trasforma le righe in oggetti Python**: non ottenete tuple, ottenete una lista di `Pratica` su cui potete scrivere `p.anno_accademico`.
+
+**⑤ La route passa gli oggetti a un template.**
+
+```python
+return render_template("studente/elenco.html", pratiche=pratiche)
+```
+
+Da questo momento la route ha finito. Non decide più niente.
+
+**⑥ Il template scrive l'HTML.** In `app/templates/studente/elenco.html` c'è un ciclo che, per ogni pratica, produce un pezzo di pagina. Il risultato completo torna al browser, che lo disegna.
+
+**Fine.** Tutte le altre pagine di lettura sono questa stessa sequenza.
+
+---
+
+### §3 Il percorso di un invio di form
+
+Quando l'utente compila un form e preme il pulsante, il browser manda una richiesta di tipo **POST** invece che **GET**. La differenza non è tecnica ma di significato: un GET chiede, un POST modifica.
+
+```
+BROWSER          ROUTE                                          DATABASE
+(POST)  ──────>  ① legge i dati inviati
+                 ② li valida
+                       │
+                       ├─ dati sbagliati ──> rimostra il form con gli errori
+                       │                     (e i valori già digitati!)
+                       │
+                       └─ dati corretti
+                            ③ crea o modifica gli oggetti
+                            ④ db.session.commit()  ─────────────>  INSERT
+                                                                   UPDATE
+                            ⑤ redirect a una pagina GET
+```
+
+I punti che contano, uno per uno.
+
+**② La validazione.** Si rifà **tutta** qui, anche se il browser l'ha già fatta. È la conseguenza diretta della sezione §1.
+
+**In caso di errore, i valori già digitati vanno ripresentati.** Far riscrivere tutto all'utente è il modo più rapido per farsi bocciare l'usabilità nella demo.
+
+**③ La modifica degli oggetti.** Qui c'è il punto che sorprende chi viene da SQL: **non scrivete mai una `UPDATE`.**
+
+```python
+pratica = db.session.get(Pratica, 12)
+pratica.stato = StatoPratica.IN_CORSO      # cambiate l'oggetto Python
+db.session.commit()                         # la UPDATE la genera SQLAlchemy
+```
+
+Il meccanismo si chiama **unit of work**: la sessione tiene traccia di quali oggetti avete toccato e, al `commit`, emette solo le istruzioni necessarie. Lo stesso vale per `db.session.add()` e le `INSERT`.
+
+**④ Il commit.** Un solo `commit` per operazione, alla fine. Se l'operazione tocca più tabelle, devono passare tutte insieme o nessuna: è il tema della Fase 9.
+
+**⑤ Il redirect.** Dopo un POST che ha modificato qualcosa non si restituisce mai direttamente una pagina: si rimanda il browser a un indirizzo GET.
+
+```python
+return redirect(url_for("pratiche.dettaglio", pratica_id=pratica.id))
+```
+
+Il motivo è pratico: senza redirect, se l'utente preme F5 il browser rimanda lo stesso POST e la stessa operazione viene eseguita due volte. Con il redirect, il refresh ricarica solo una pagina di lettura, innocua.
+
+Per dire qualcosa all'utente attraverso il redirect si usano i **messaggi flash**: `flash("Pratica creata.", "success")` prima del redirect, e il messaggio compare nella pagina successiva. Il template base li mostra già tutti, con tre stili: `success`, `warning`, `error`.
+
+---
+
+### §4 Chi sei, e cosa puoi fare
+
+Sono due domande diverse, con due risposte diverse, e vanno tenute separate.
+
+**Autenticazione — chi sei.** Se ne occupa Flask-Login, con cinque ingredienti:
+
+1. una classe utente con un identificatore univoco → `app/models.py`
+2. `login_user(utente)`, che salva l'identità nel cookie di sessione → `app/blueprints/auth.py`
+3. `logout_user()`, che la rimuove → stesso file
+4. la callback **`user_loader`**, che a ogni richiesta ricostruisce l'oggetto utente a partire dall'identità nel cookie → `app/__init__.py`
+5. il decoratore `@login_required` sulle route protette
+
+Il punto 4 è quello che risponde al problema della mancanza di memoria visto in §1: ad ogni richiesta Flask-Login legge il cookie, chiama la vostra callback, e mette il risultato in `current_user`, che diventa disponibile sia nelle route sia nei template.
+
+I punti 1 e 4 sono gli unici che dovete scrivere voi obbligatoriamente.
+
+**Autorizzazione — cosa puoi fare.** Flask-Login **non** la fornisce. La scrivete voi, in `app/security.py`, e serve a due livelli diversi.
+
+**Primo livello, controllo di ruolo:** *questo tipo di utente può usare questa funzione?*
+
+```python
+@login_required
+@ruolo_richiesto(Ruolo.UFFICIO)
+def chiudi_pratica(pratica_id): ...
+```
+
+**Secondo livello, controllo di appartenenza:** *questo specifico utente può toccare questo specifico oggetto?*
+
+```python
+pratica = db.session.get(Pratica, pratica_id)
+esigi_accesso(pratica)
+```
+
+Il secondo è quello che si dimentica più spesso ed è il più grave: senza, uno studente cambia il numero nell'URL e legge la pratica di un altro. Va applicato su **ogni** route che riceve un identificatore.
+
+C'è poi un terzo posto, che non è un decoratore e per questo sfugge: **gli elenchi**. Il filtro deve stare nella query.
+
+```python
+# giusto
+.where(Pratica.studente_id == current_user.id)
+
+# sbagliato: caricare tutto e nascondere le righe altrui nel template
+```
+
+La seconda versione non è un filtro, è una falla: i dati sono già usciti dal server.
+
+Riassumendo, i permessi si controllano in **tre punti**: il decoratore di ruolo sulla route, il controllo di appartenenza sull'oggetto, il filtro dentro la query. Nascondere un pulsante nel template non è un quarto punto: serve solo a non confondere l'utente.
+
+---
+
+### §5 La sessione del database e le transazioni
+
+`db.session` è l'oggetto attraverso cui si parla al database. Tre cose da sapere.
+
+**Non è globale, è legata alla richiesta.** Nasce quando arriva la richiesta HTTP e viene chiusa alla fine, sempre, anche se la richiesta muore con un errore. Non dovete aprirla né chiuderla: lo fa Flask-SQLAlchemy. È precisamente il lavoro che con SQLAlchemy "nudo" dovreste scrivere voi, ed è la fonte più comune di bug difficili da diagnosticare.
+
+**È anche il confine della transazione.** Tutto quello che fate fra l'inizio della richiesta e il `commit` è una transazione unica: o passa tutto, o non passa niente.
+
+```python
+try:
+    documento.esito = Esito.APPROVATO
+    documento.pratica.stato = StatoPratica.PRE_PARTENZA_OK
+    db.session.commit()          # le due scritture insieme
+except Exception:
+    db.session.rollback()        # oppure nessuna delle due
+    raise
+```
+
+Non deve poter esistere un documento approvato su una pratica rimasta nello stato precedente. Questo è il tema della Fase 9.
+
+**Se qualcosa fallisce, la sessione va annullata.** Una sessione lasciata a metà è inutilizzabile per il resto della richiesta. Per questo il gestore dell'errore 500 in `app/__init__.py` chiama `db.session.rollback()`.
+
+---
+
+### §6 L'ORM in tre concetti
+
+**Primo: la corrispondenza.** Una classe è una tabella, un'istanza è una riga, un attributo è una colonna. La classe `Pratica` in `app/models.py` **è** la definizione della tabella `pratica`: da lì `db.create_all()` la crea davvero.
+
+**Secondo: l'unit of work**, già visto in §3. Modificate oggetti, non scrivete istruzioni SQL di modifica.
+
+**Terzo: le relazioni navigabili.** Una chiave esterna diventa un attributo:
+
+```python
+pratica.istituto.nome        # la join la fa l'ORM
+pratica.esami                # la lista degli esami collegati
+```
+
+Da qui nasce l'unico vero trabocchetto dell'ORM. Se una pagina carica cinquanta pratiche e il template legge `pratica.istituto.nome`, l'ORM esegue **cinquantuno query** invece di una: una per l'elenco e una per ogni riga. Si chiama *problema delle query a cascata* e si risolve chiedendo il caricamento anticipato:
+
+```python
+.options(selectinload(Pratica.istituto))
+```
+
+Per accorgersene basta mettere `SQL_ECHO=1` nel file `.env` e contare le righe che scorrono nel terminale caricando una pagina. Il confronto prima e dopo è ottimo materiale per la sezione sulle performance della relazione (Fase 10).
+
+**E l'Expression Language?** Non è un'alternativa all'ORM: è lo strato sottostante. `select()` è la stessa identica funzione nei due casi, e nel progetto la userete così: ORM per le entità, `select()` con `func.count()` e `group_by()` per le query analitiche in `app/queries.py`. Entrambi restano indipendenti dal dialetto SQL, che è ciò che chiede il punto 4 degli aspetti raccomandati dalla traccia.
+
+---
+
+### §7 Vocabolario minimo
+
+Termini usati nel resto del documento, con il loro significato in questo progetto.
+
+- **Route** (o *vista*) — una funzione Python collegata a un indirizzo. È il punto di ingresso di una pagina.
+- **Endpoint** — il nome interno di una route, nella forma `blueprint.funzione`, per esempio `studente.elenco_pratiche`. Si usa con `url_for()` per costruire i link senza scrivere gli indirizzi a mano.
+- **Blueprint** — un gruppo di route con uno scopo comune e un prefisso di URL. Nel progetto ce n'è uno per area funzionale.
+- **Template** — un file HTML con dentro dei segnaposto, riempito dal motore Jinja2.
+- **Decoratore** — la riga con la chiocciola sopra una funzione. Aggiunge un comportamento senza modificarne il corpo: qui li usiamo per i controlli di accesso.
+- **Modello** — una classe che rappresenta una tabella.
+- **Sessione** — due significati diversi, attenzione: la *sessione utente* è il cookie che ricorda chi sei; la *sessione del database* è `db.session`. Nel documento si specifica sempre quale.
+- **Migrazione** — il passaggio da una versione dello schema alla successiva conservando i dati. In questo progetto **non le usiamo**: si ricrea il database da zero con `init_db --reset` e `seed`. Con due settimane è la scelta giusta, e va detto in relazione.
+- **Application factory** — la funzione `create_app()` che costruisce l'applicazione. Permette di crearne più di una con configurazioni diverse.
+
+---
+
+### §8 Mappa: devo fare X, quale file apro
+
+- Cambiare un'impostazione → `config.py` e `.env`
+- Aggiungere o modificare una tabella → `app/models.py`
+- Aggiungere uno stato, un ruolo, un tipo → `app/enums.py`
+- Aggiungere una pagina → il blueprint dell'area, più un template
+- Cambiare chi può fare cosa → `app/security.py`
+- Scrivere una query complicata → `app/queries.py`
+- Aggiungere un trigger, una vista, un indice particolare → `scripts/schema_extra_postgres.sql`
+- Gestire il caricamento di un file → `app/documenti.py`
+- Cambiare i dati di prova → `scripts/seed.py`
+- Cambiare il menu, i colori, la struttura comune → `app/templates/base.html`
+- Riusare un pezzo di HTML in più pagine → `app/templates/_frammenti.html`
+- Registrare un blueprint nuovo → `app/__init__.py`
+
 ---
 
 ## Indice delle fasi
+
+*Prima delle fasi c'è il **Capitolo introduttivo**, che spiega come funziona la macchina: il percorso di una richiesta, dove vengono controllati i permessi, cosa fa la sessione del database. Le fasi lo danno per letto e ci rimandano indietro.*
 
 1. Fase 0 — Impostazione del lavoro e dell'ambiente
 2. Fase 1 — Analisi della traccia e raccolta dei requisiti
@@ -85,6 +355,10 @@ La Fase 12, le estensioni facoltative, sta fuori da questa scala: la si affronta
 # FASE 0 — Impostazione del lavoro e dell'ambiente
 
 Obiettivo: partire tutti dalla stessa base. Ogni ora spesa qui ne fa risparmiare cinque più avanti, perché evita il caso peggiore di un progetto di gruppo: tre macchine configurate in tre modi diversi e un repository che nessuno riesce ad avviare.
+
+> **Concetti in gioco:** nessuno ancora — qui si prepara solo la macchina. Se non hai letto il Capitolo introduttivo, leggilo prima della Fase 1: da lì in poi viene dato per acquisito.
+>
+> **File che tocchi:** `.env`, `requirements.txt`, più la configurazione di PyCharm e GitHub. Nessun file dell'applicazione.
 
 ## 0.1 Decisioni tecnologiche — già prese
 
@@ -342,6 +616,10 @@ Con tre persone sullo stesso repository serve una regola sola, ma rispettata.
 
 Obiettivo: trasformare la traccia discorsiva in un elenco di requisiti verificabili. Nessuna riga di codice prima di aver chiuso questa fase.
 
+> **Concetti in gioco:** i **ruoli** e i **permessi** che descrivi qui diventeranno i tre controlli della sezione §4 del Capitolo introduttivo. Le **regole di business** del punto 1.4 diventeranno vincoli, trigger e transazioni: quando le scrivi, immagina già dove vivranno.
+>
+> **File che tocchi:** nessun file di codice. Solo `docs/schema_er/` e la sezione 3 di `docs/RELAZIONE.md`.
+
 ## 1.1 Rilettura ragionata della traccia
 
 - Rileggere il documento della traccia sottolineando ogni frase che contiene un obbligo ("deve poter", "solo se", "almeno").
@@ -424,6 +702,10 @@ Queste sono le regole che poi andranno garantite con vincoli, trigger o transazi
 
 Obiettivo: produrre lo schema Entità-Relazione, usando **la notazione grafica del Modulo 1 del corso**. Questo è un requisito esplicito: usare una notazione diversa è un errore che si paga in sede di valutazione.
 
+> **Concetti in gioco:** ogni entità che disegni diventerà una **classe modello** (sezione §6), ogni relazione una **chiave esterna navigabile** come attributo. Tenerlo a mente aiuta a capire quando una relazione molti a molti va reificata: se ha attributi propri, servirà una classe sua.
+>
+> **File che tocchi:** `docs/schema_er/`. Ancora nessun codice.
+
 ## 2.1 Individuazione delle entità
 
 - Partire dall'elenco dei sostantivi ricavato in Fase 1 e distinguere:
@@ -504,6 +786,10 @@ Qualunque sia la scelta, va giustificata nella relazione con un argomento tecnic
 
 Obiettivo: tradurre lo schema concettuale in uno schema relazionale corretto e normalizzato, documentando ogni passaggio.
 
+> **Concetti in gioco:** lo schema logico che produci qui **è** il contenuto di `app/models.py`. Ogni relazione diventerà una classe, ogni chiave primaria un `primary_key=True`, ogni chiave esterna una `ForeignKey` con la sua politica di cancellazione. Non stai facendo un esercizio teorico separato: stai scrivendo il file, in italiano.
+>
+> **File che tocchi:** `docs/schema_er/` e la sezione 3 di `docs/RELAZIONE.md`. Il codice arriva nella fase successiva.
+
 ## 3.1 Traduzione dallo schema ER allo schema relazionale
 
 - Tradurre ogni entità in una relazione, riportando gli attributi.
@@ -558,6 +844,10 @@ Questa sezione è quella in cui si dimostra di padroneggiare la teoria del Modul
 # FASE 4 — Implementazione fisica della base di dati
 
 Obiettivo: avere un database funzionante e popolato, ricostruibile da zero con due comandi.
+
+> **Concetti in gioco:** la **corrispondenza classe/tabella** (Capitolo introduttivo, §6) e il principio che *le regole sulla correttezza dei dati stanno nel database*. Qui costruisci le fondamenta su cui poggeranno tutti i controlli delle fasi successive: un vincolo scritto qui vale anche per chi scrive in SQL a mano, uno scritto nelle route no.
+>
+> **File che tocchi:** `app/enums.py`, `app/models.py`, `scripts/schema_extra_postgres.sql`, `scripts/seed.py`.
 
 ## 4.1 Il principio: dove vive ogni pezzo dello schema
 
@@ -828,6 +1118,10 @@ Questa prova va conservata: è ottimo materiale per la sezione della relazione s
 
 Obiettivo: avere lo scheletro dell'applicazione collegato al database, prima di implementare qualunque funzionalità.
 
+> **Concetti in gioco:** l'**application factory**, la **sessione legata alla richiesta** (§5) e il percorso della richiesta descritto in §2. Alla fine di questa fase i sei passi di quel percorso esistono tutti nel progetto: manca solo il contenuto.
+>
+> **File che tocchi:** `app/__init__.py`, `app/extensions.py`, `config.py`. Nello scaffold sono già scritti: qui li leggi e li capisci più che scriverli.
+
 ## 5.1 Le estensioni, create vuote
 
 In `app/extensions.py` si creano le istanze delle estensioni **senza applicazione**, e le si collega dentro la factory. È il modo per evitare gli import circolari: i modelli importano `db` da qui senza dover importare l'applicazione.
@@ -971,6 +1265,10 @@ Due regole che tengono pulito il codice:
 
 Obiettivo: nessuno vede o modifica ciò che non gli compete. È il primo dei dieci requisiti funzionali ed è anche uno degli aspetti su cui la traccia chiede attenzione particolare.
 
+> **Concetti in gioco:** i cinque ingredienti di Flask-Login e i **tre punti di controllo** dei permessi (Capitolo introduttivo, §4): decoratore di ruolo, controllo di appartenenza, filtro nella query. E il principio della sezione §1: tutto ciò che sta nel browser è modificabile, quindi il controllo vero sta sempre qui.
+>
+> **File che tocchi:** `app/security.py`, `app/blueprints/auth.py`, `app/templates/auth/login.html`, la `user_loader` in `app/__init__.py`, e la classe `Utente` in `app/models.py`.
+
 ## 6.1 Autenticazione
 
 - Implementare la classe utente richiesta da Flask-Login, con un identificatore univoco in forma di stringa.
@@ -1015,6 +1313,10 @@ Flask-Login gestisce l'autenticazione ma **non** l'autorizzazione: quella va imp
 # FASE 7 — Implementazione delle funzionalità
 
 Obiettivo: coprire i dieci requisiti funzionali minimi. L'ordine suggerito segue il flusso reale di una pratica, così che in ogni momento si possa provare l'applicazione dall'inizio.
+
+> **Concetti in gioco:** qui si mettono in pratica entrambi i percorsi del Capitolo introduttivo — la **lettura** (§2) per ogni elenco e ogni dettaglio, l'**invio di form** (§3) per ogni azione, con validazione lato server, un solo `commit` e redirect finale. Ogni punto di questa fase è la stessa sequenza con nomi diversi.
+>
+> **File che tocchi:** i blueprint di area in `app/blueprints/` e i template corrispondenti in `app/templates/`.
 
 ## 7.1 Gestione degli istituti ospitanti
 
@@ -1121,6 +1423,10 @@ Questa è la funzionalità più complessa del progetto e va progettata con cura 
 
 Obiettivo: gestire in modo sicuro i file caricati dagli utenti. La traccia chiarisce che non serve modellare il contenuto dei documenti, ma la loro gestione va fatta bene.
 
+> **Concetti in gioco:** il principio della sezione §1 applicato ai file — il nome e l'estensione arrivano dal browser, quindi non sono affidabili — e il **controllo di appartenenza** (§4) applicato allo scaricamento: un documento non si serve mai come file statico, ma attraverso una route che prima verifica i permessi.
+>
+> **File che tocchi:** `app/documenti.py`, più una route di scaricamento nel blueprint delle pratiche.
+
 ## 8.1 Caricamento
 
 - Definire i formati ammessi e rifiutare tutto il resto.
@@ -1172,6 +1478,10 @@ La traccia lo indica esplicitamente fra gli spunti di arricchimento.
 
 Obiettivo: garantire che il database non finisca mai in uno stato incoerente, nemmeno in caso di errore a metà di un'operazione o di accessi concorrenti. È il primo degli aspetti raccomandati dalla traccia.
 
+> **Concetti in gioco:** la **sessione come confine della transazione** (Capitolo introduttivo, §5) e la distinzione fra ciò che il database può garantire da solo e ciò che richiede un trigger o una transazione. Non scrivi codice nuovo: rivedi quello della Fase 7 e sistemi i punti dove due scritture devono essere una sola.
+>
+> **File che tocchi:** le route già scritte, e `scripts/schema_extra_postgres.sql` per i trigger.
+
 ## 9.1 Individuazione delle operazioni transazionali
 
 Un'operazione va racchiusa in una transazione quando tocca più righe o più tabelle e ha senso solo se riesce per intero.
@@ -1220,6 +1530,10 @@ Un'operazione va racchiusa in una transazione quando tocca più righe o più tab
 
 Obiettivo: mostrare consapevolezza del costo delle query. È il terzo aspetto raccomandato dalla traccia.
 
+> **Concetti in gioco:** il **problema delle query a cascata** (§6) e la differenza fra ciò che l'ORM ti fa scrivere e ciò che il database esegue davvero. Lo strumento è sempre lo stesso: `SQL_ECHO=1` e contare le query.
+>
+> **File che tocchi:** `app/models.py` per gli indici, `scripts/schema_extra_postgres.sql` per le viste, `app/queries.py` per le interrogazioni, e le route dove serve `selectinload`.
+
 ## 10.1 Individuazione delle query frequenti
 
 - Elencare le interrogazioni che l'applicazione esegue più spesso o su più dati:
@@ -1261,6 +1575,10 @@ Obiettivo: mostrare consapevolezza del costo delle query. È il terzo aspetto ra
 # FASE 11 — Front-end
 
 Obiettivo: un'interfaccia minimale ma coerente e usabile. La traccia è esplicita: il front-end deve essere minimale, JavaScript non è richiesto e non influisce sulla valutazione. Non è qui che si guadagnano punti, ma è qui che si possono perdere se l'applicazione risulta incomprensibile nella demo.
+
+> **Concetti in gioco:** il passo ⑤ e ⑥ del percorso di lettura (§2) — il template riceve **oggetti** dalla route e produce HTML — e il promemoria della sezione §1: nascondere un comando nel template non è una protezione, è cortesia verso l'utente.
+>
+> **File che tocchi:** `app/templates/`, in particolare `base.html` e `_frammenti.html`, più `app/static/css/style.css`.
 
 ## 11.1 Impostazione dei template
 
@@ -1359,6 +1677,10 @@ Da affrontare **solo** dopo che tutto il nucleo obbligatorio funziona. La tracci
 
 Obiettivo: trovare i problemi prima che li trovi la docente.
 
+> **Concetti in gioco:** si verifica che i tre punti di controllo dei permessi (§4) reggano davvero, e che i vincoli del database respingano le violazioni anche quando l'applicazione viene aggirata. È il momento in cui si scopre se il principio della sezione §1 è stato rispettato ovunque.
+>
+> **File che tocchi:** `docs/collaudo.md`, e tutti i file dove trovi problemi.
+
 ## 13.1 Collaudo funzionale
 
 - Percorrere l'intero ciclo di vita di una pratica con i tre ruoli, dall'inizio alla chiusura, verificando ogni passaggio di stato.
@@ -1412,6 +1734,10 @@ Obiettivo: trovare i problemi prima che li trovi la docente.
 # FASE 14 — Stesura della relazione
 
 Obiettivo: un unico file PDF strutturato secondo l'indice raccomandato dalla docente. La documentazione è **il primo dei quattro parametri di valutazione**: vale quanto il codice, e va trattata come tale.
+
+> **Concetti in gioco:** tutti. La relazione è il posto dove i concetti di questo capitolo vanno raccontati come **scelte vostre**, non come funzionamento di Flask: perché i controlli stanno in tre punti, perché le regole di correttezza stanno nel database, perché ORM per le entità ed Expression Language per le aggregazioni.
+>
+> **File che tocchi:** `docs/RELAZIONE.md`, attingendo a `docs/decisioni.md` e `docs/query_principali.sql`.
 
 ## 14.1 Struttura richiesta
 
