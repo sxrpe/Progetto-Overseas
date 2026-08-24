@@ -1,0 +1,8 @@
+/* Piccoli ritocchi sopra W3.CSS. Il grosso dello stile arriva dal framework:
+   il front-end deve essere minimale, non originale. */
+
+body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+h1   { font-size: 1.8rem; margin-bottom: .5rem; }
+h2   { font-size: 1.3rem; margin-top: 2rem; }
+h3   { font-size: 1.05rem; margin: 0 0 .4rem; }
+label { display: block; font-weight: 600; margin-bottom: .2rem; }

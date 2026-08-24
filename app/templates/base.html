@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titolo %}Overseas{% endblock %} · Mobilità Overseas</title>
+  <link rel="stylesheet" href="https://www.w3schools.com/w3css/5/w3.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<header class="w3-bar w3-dark-grey">
+  <a href="{{ url_for('pubblico.home') }}" class="w3-bar-item w3-button"><b>Overseas</b></a>
+  {% if current_user.is_authenticated %}
+    {% if current_user.ruolo.value == 'studente' %}
+      <a href="{{ url_for('studente.elenco_pratiche') }}" class="w3-bar-item w3-button">Le mie pratiche</a>
+      <a href="{{ url_for('studente.nuova_pratica') }}" class="w3-bar-item w3-button">Nuova pratica</a>
+    {% elif current_user.ruolo.value == 'docente' %}
+      <a href="{{ url_for('docente.elenco_pratiche') }}" class="w3-bar-item w3-button">Pratiche da seguire</a>
+    {% elif current_user.ruolo.value == 'ufficio' %}
+      <a href="{{ url_for('ufficio.elenco_pratiche') }}" class="w3-bar-item w3-button">Tutte le pratiche</a>
+      <a href="{{ url_for('ufficio.cruscotto') }}" class="w3-bar-item w3-button">Cruscotto</a>
+    {% endif %}
+    <a href="{{ url_for('auth.logout') }}" class="w3-bar-item w3-button w3-right">Esci</a>
+    <span class="w3-bar-item w3-right">{{ current_user.nominativo }}</span>
+  {% else %}
+    <a href="{{ url_for('auth.login') }}" class="w3-bar-item w3-button w3-right">Accedi</a>
+  {% endif %}
+</header>
+
+<main class="w3-container w3-padding-32" style="max-width:960px;margin:auto">
+  {% with messaggi = get_flashed_messages(with_categories=true) %}
+    {% for categoria, testo in messaggi %}
+      <div class="w3-panel w3-leftbar
+                  {% if categoria == 'error' %}w3-pale-red w3-border-red
+                  {% elif categoria == 'warning' %}w3-pale-yellow w3-border-yellow
+                  {% else %}w3-pale-green w3-border-green{% endif %}">
+        <p>{{ testo }}</p>
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  {% block contenuto %}{% endblock %}
+</main>
+
+</body>
+</html>

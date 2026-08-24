@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block titolo %}Cruscotto{% endblock %}
+{% block contenuto %}
+  <h1>Cruscotto</h1>
+  <h2>Mobilità per paese</h2>
+  {% if not per_paese %}<p>Nessun dato disponibile.</p>{% endif %}
+  {% for riga in per_paese %}
+    <p>{{ riga.paese }} — {{ riga.totale }} pratic{{ 'a' if riga.totale == 1 else 'he' }}</p>
+  {% endfor %}
+{% endblock %}

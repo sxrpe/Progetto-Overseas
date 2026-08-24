@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block titolo %}Nuova pratica{% endblock %}
+{% block contenuto %}
+  <h1>Nuova pratica di mobilità</h1>
+
+  <form method="post" class="w3-card w3-padding">
+    <label for="anno_accademico">Anno accademico (formato 2025/26)</label>
+    <input class="w3-input w3-border" id="anno_accademico" name="anno_accademico"
+           value="{{ dati.get('anno_accademico', '') }}" required>
+
+    <label for="istituto_id" class="w3-margin-top">Istituto ospitante</label>
+    <select class="w3-select w3-border" id="istituto_id" name="istituto_id" required>
+      <option value="">— scegli —</option>
+      {% for i in istituti %}
+        <option value="{{ i.id }}">{{ i.nome }} ({{ i.citta }}, {{ i.paese }})</option>
+      {% endfor %}
+    </select>
+
+    <label for="periodo" class="w3-margin-top">Periodo previsto</label>
+    <select class="w3-select w3-border" id="periodo" name="periodo" required>
+      <option value="primo_semestre">Primo semestre</option>
+      <option value="secondo_semestre">Secondo semestre</option>
+      <option value="intero_anno">Intero anno</option>
+    </select>
+
+    <label for="docente_id" class="w3-margin-top">Docente referente</label>
+    <select class="w3-select w3-border" id="docente_id" name="docente_id" required>
+      <option value="">— scegli —</option>
+      {% for d in docenti %}
+        <option value="{{ d.id }}">{{ d.nominativo }}</option>
+      {% endfor %}
+    </select>
+
+    <label for="note" class="w3-margin-top">Note (facoltative)</label>
+    <textarea class="w3-input w3-border" id="note" name="note" rows="3">{{ dati.get('note', '') }}</textarea>
+
+    <button class="w3-button w3-dark-grey w3-margin-top" type="submit">Crea pratica</button>
+  </form>
+{% endblock %}

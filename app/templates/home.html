@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block titolo %}Home{% endblock %}
+{% block contenuto %}
+  <h1>Gestione delle mobilità Overseas</h1>
+  <p>Piattaforma per la gestione delle pratiche di mobilità extra-europea.</p>
+  <a href="{{ url_for('auth.login') }}" class="w3-button w3-dark-grey">Accedi</a>
+{% endblock %}

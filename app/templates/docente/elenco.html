@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titolo %}Pratiche da seguire{% endblock %}
+{% block contenuto %}
+  <h1>Pratiche di cui sono referente</h1>
+  {% if not pratiche %}<p>Nessuna pratica assegnata.</p>{% endif %}
+  {% for p in pratiche %}
+    <div class="w3-card w3-padding w3-margin-bottom">
+      <h3>{{ p.studente.nominativo }} — {{ p.istituto.nome }}</h3>
+      <p>Anno {{ p.anno_accademico }} ·
+         <span class="w3-tag w3-round w3-grey">{{ p.stato.value | replace('_', ' ') }}</span></p>
+      <a href="{{ url_for('pratiche.dettaglio', pratica_id=p.id) }}"
+         class="w3-button w3-dark-grey">Apri</a>
+    </div>
+  {% endfor %}
+{% endblock %}

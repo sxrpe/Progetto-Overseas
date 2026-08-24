@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titolo %}Accesso{% endblock %}
+{% block contenuto %}
+  <h1>Accesso</h1>
+  <form method="post" class="w3-card w3-padding">
+    <label for="email">Email</label>
+    <input class="w3-input w3-border" type="email" id="email" name="email"
+           value="{{ email }}" required autofocus>
+
+    <label for="password" class="w3-margin-top">Password</label>
+    <input class="w3-input w3-border" type="password" id="password" name="password" required>
+
+    <button class="w3-button w3-dark-grey w3-margin-top" type="submit">Accedi</button>
+  </form>
+{% endblock %}
