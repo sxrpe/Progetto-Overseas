@@ -1,7 +1,0 @@
-{% extends "base.html" %}
-{% block titolo %}Errore {{ codice }}{% endblock %}
-{% block contenuto %}
-  <h1>Errore {{ codice }}</h1>
-  <p>{{ messaggio }}</p>
-  <a href="{{ url_for('pubblico.home') }}" class="w3-button w3-dark-grey">Torna alla home</a>
-{% endblock %}
