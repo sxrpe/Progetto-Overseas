@@ -1,0 +1,33 @@
+{#
+  CRUSCOTTO DELL'UFFICIO  ->  FASE 12 (facoltativo, ma conviene)
+
+  E' l'estensione facoltativa che rende di piu', per due motivi:
+    - e' quella suggerita per prima dalla traccia;
+    - ti serve anche come prova concreta per la sezione della relazione
+      sulle performance, perche' le sue query aggregate sono il caso d'uso
+      naturale per una vista materializzata.
+
+  COSA MOSTRARE
+    - conteggio delle pratiche per stato
+    - distribuzione per paese e per istituto ospitante
+    - confronto per anno accademico
+    - pratiche ferme da piu' tempo in uno stato intermedio
+
+  DA DOVE ARRIVANO I DATI
+    Da app/queries.py, non da query scritte qui nella route. Sono
+    esattamente le interrogazioni che citerai nella sezione "Query
+    principali" della relazione.
+
+  SENZA GRAFICI
+    Numeri e barre fatte con le progress bar di Bootstrap bastano. La
+    traccia dice che JavaScript non incide sulla valutazione: aggiungere una
+    libreria di grafici e' tempo speso per zero punti.
+#}
+
+{% extends "base.html" %}
+{% block titolo %}Cruscotto{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">Cruscotto</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 12 (facoltativo).</div>
+{% endblock %}

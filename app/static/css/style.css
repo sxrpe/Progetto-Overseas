@@ -1,0 +1,30 @@
+/* ---------------------------------------------------------------------------
+   Ritocchi sopra Bootstrap.
+
+   Il grosso dello stile arriva dal framework: il front-end deve essere
+   minimale, non originale. La traccia e' esplicita su questo, e non si
+   guadagnano punti reinventando il CSS.
+
+   Qui dentro va solo cio' che Bootstrap non copre: qualche misura, la
+   tipografia, gli stili delle etichette di stato.
+   --------------------------------------------------------------------------- */
+
+/* Etichette di stato della pratica.
+   Averle sempre uguali e sempre nella stessa posizione e' il modo piu'
+   semplice per rendere leggibile l'applicazione durante la demo. */
+.stato {
+    font-size: .78rem;
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+
+/* Le schede degli elenchi: un filo piu' compatte del default. */
+.card + .card {
+    margin-top: .75rem;
+}
+
+/* I codici inline (nomi di file, di colonna) devono restare leggibili. */
+code {
+    font-size: .875em;
+}

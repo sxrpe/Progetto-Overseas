@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------------------
+# Dipendenze del progetto Overseas
+#
+# Installazione (con l'ambiente virtuale attivo):
+#     pip install -r requirements.txt
+#
+# Questo NON e' uno script da eseguire: e' un elenco che pip legge.
+# L'operatore ~= accetta gli aggiornamenti correttivi (3.1.0 -> 3.1.4)
+# ma blocca i cambi di versione maggiore (3.1 -> 3.2), che potrebbero
+# rompere il codice a due giorni dalla consegna.
+#
+# REGOLA: ogni volta che installi una libreria nuova, aggiungila QUI.
+# Altrimenti il progetto funziona sulla tua macchina e non su quella degli
+# altri due. E' il classico "da me funziona".
+# ---------------------------------------------------------------------------
+
+Flask~=3.1.0                # framework web: gestisce URL, richieste, risposte
+Flask-SQLAlchemy~=3.1.1     # collega SQLAlchemy a Flask (sessione per richiesta)
+Flask-Login~=0.6.3          # autenticazione basata su sessione e cookie
+SQLAlchemy~=2.0.36          # ORM e Core: il dialogo col database
+passlib~=1.7.4              # hashing delle password (pbkdf2_sha256, puro Python)
+python-dotenv~=1.0.1        # legge la configurazione dal file .env
+
+# Driver del DBMS: lascia attiva SOLO la riga del database che usi davvero.
+psycopg[binary]~=3.2.3      # PostgreSQL
+# SQLite non richiede driver: e' gia' incluso in Python.

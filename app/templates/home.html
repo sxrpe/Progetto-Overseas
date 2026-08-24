@@ -1,0 +1,99 @@
+{# Pagina di verifica dell'installazione.
+   Serve a chiudere la Tappa 1: se la vedi e il riquadro del database e'
+   verde, l'ambiente e' a posto. Va cancellata quando comincia la Fase 7. #}
+
+{% extends "base.html" %}
+{% block titolo %}Verifica{% endblock %}
+
+{% block contenuto %}
+
+  <h1 class="h3 mb-1">Piattaforma per la gestione delle mobilità Overseas</h1>
+  <p class="text-body-secondary">
+    Progetto di Basi di Dati Mod. 2 — A.A. 2025/2026
+  </p>
+
+  <div class="alert alert-info">
+    <strong>Scheletro del progetto.</strong>
+    Le cartelle e la configurazione ci sono, le funzionalità no.
+    Questa pagina serve solo a verificare che l'ambiente funzioni: cancellala
+    quando inizi la Fase 7.
+  </div>
+
+  <div class="row g-3">
+
+    {# ---- stato dell'applicazione ---- #}
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h6 text-uppercase text-body-secondary mb-3">Applicazione</h2>
+          <p class="mb-1">
+            <span class="badge text-bg-success">attiva</span>
+            Flask ha caricato la configurazione e i blueprint.
+          </p>
+          <p class="mb-0 small text-body-secondary">
+            Modalità debug:
+            {% if debug %}
+              <span class="badge text-bg-warning">accesa</span>
+            {% else %}
+              <span class="badge text-bg-secondary">spenta</span>
+            {% endif %}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {# ---- stato del database ---- #}
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h6 text-uppercase text-body-secondary mb-3">Database</h2>
+          {% if db_ok %}
+            <p class="mb-1">
+              <span class="badge text-bg-success">connesso</span>
+              Dialetto: <code>{{ db_dialetto }}</code>
+            </p>
+            <p class="mb-1 small text-break text-body-secondary">
+              {{ db_descrizione }}
+            </p>
+            <p class="mb-0 small">
+              Tabelle definite nei modelli:
+              {% if tabelle %}
+                <code>{{ tabelle | join(', ') }}</code>
+              {% else %}
+                <span class="text-body-secondary">
+                  nessuna — normale, i modelli si scrivono in Fase 4.
+                </span>
+              {% endif %}
+            </p>
+          {% else %}
+            <p class="mb-1">
+              <span class="badge text-bg-danger">non raggiungibile</span>
+            </p>
+            <p class="mb-0 small text-break">
+              Controlla <code>DATABASE_URL</code> nel file <code>.env</code>.
+              Dettaglio: <code>{{ db_errore }}</code>
+            </p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# ---- prossimi passi ---- #}
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h6 text-uppercase text-body-secondary mb-3">Prossimi passi</h2>
+          <ol class="mb-0">
+            <li>Leggi il <code>README.md</code>: spiega a cosa serve ogni cartella.</li>
+            <li>Chiudi le Fasi 1, 2 e 3 del piano: analisi, schema ER, schema logico.
+                Nessun modello prima di aver normalizzato.</li>
+            <li>Fase 4: scrivi i modelli in <code>app/models.py</code>, poi lancia
+                <code>python -m scripts.init_db</code> e ricarica questa pagina:
+                le tabelle devono comparire qui sopra.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+  </div>
+{% endblock %}

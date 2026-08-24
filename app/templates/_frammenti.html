@@ -1,0 +1,82 @@
+{#
+  FRAMMENTI RIUTILIZZABILI (macro Jinja).
+
+  Una macro e' una funzione che produce HTML. Serve per gli elementi che
+  compaiono in piu' pagine: se l'etichetta di stato appare in cinque template
+  e la definisci cinque volte, cambiarla significa cambiarla cinque volte.
+
+  COME SI USA, da un altro template:
+      {% from "_frammenti.html" import stato_pratica, riga_esame %}
+      {{ stato_pratica(pratica.stato) }}
+
+  QUANDO LO RIEMPI
+      Fase 11, man mano che ti accorgi di star copiando lo stesso pezzo di
+      HTML per la seconda volta. Non prima: creare astrazioni per elementi
+      usati una sola volta e' tempo perso.
+#}
+
+
+{# --------------------------------------------------------------------------
+   ETICHETTA DI STATO — questa e' gia' pronta e funzionante.
+   Mostra lo stato della pratica con un colore coerente in tutta
+   l'applicazione. Averla sempre uguale e sempre nella stessa posizione e' il
+   modo piu' semplice per rendere leggibile l'app durante la demo.
+   -------------------------------------------------------------------------- #}
+{% macro stato_pratica(stato) %}
+  {% set colori = {
+       'creata':                  'secondary',
+       'attesa_approvazione_la':  'warning',
+       'pre_partenza_completata': 'info',
+       'mobilita_in_corso':       'primary',
+       'in_riconoscimento_esami': 'warning',
+       'chiusa':                  'success'
+     } %}
+  <span class="badge stato text-bg-{{ colori.get(stato.value, 'secondary') }}">
+    {{ stato.value | replace('_', ' ') }}
+  </span>
+{% endmacro %}
+
+
+{# --------------------------------------------------------------------------
+   ESITO DI UNA DECISIONE — approvato / rifiutato / in attesa.
+   -------------------------------------------------------------------------- #}
+{% macro etichetta_esito(esito) %}
+  {% set colori = {
+       'in_attesa':  'secondary',
+       'approvato':  'success',
+       'rifiutato':  'danger'
+     } %}
+  <span class="badge stato text-bg-{{ colori.get(esito.value, 'secondary') }}">
+    {{ esito.value | replace('_', ' ') }}
+  </span>
+{% endmacro %}
+
+
+{# --------------------------------------------------------------------------
+   CAMPO DI UN FORM con etichetta ed errore accanto.
+   Da completare in Fase 11, quando decidi come passi gli errori al template.
+
+   {% macro campo(nome, etichetta, valore='', tipo='text', errore=None, obbligatorio=True) %}
+     <div class="mb-3">
+       <label class="form-label" for="{{ nome }}">{{ etichetta }}</label>
+       <input class="form-control {% if errore %}is-invalid{% endif %}"
+              type="{{ tipo }}" id="{{ nome }}" name="{{ nome }}"
+              value="{{ valore }}" {% if obbligatorio %}required{% endif %}>
+       {% if errore %}<div class="invalid-feedback">{{ errore }}</div>{% endif %}
+     </div>
+   {% endmacro %}
+   -------------------------------------------------------------------------- #}
+
+
+{# --------------------------------------------------------------------------
+   SCHEDA DI UNA PRATICA in un elenco.
+   Da scrivere in Fase 11. Attenzione: la scheda e' la stessa per i tre ruoli,
+   ma i pulsanti no. Passa i comandi come parametro invece di mettere degli
+   "if ruolo" dentro la macro.
+   -------------------------------------------------------------------------- #}
+
+
+{# --------------------------------------------------------------------------
+   RIGA DEL MAPPING ESAMI: esame estero -> esame di Ca' Foscari.
+   Da scrivere in Fase 11.
+   -------------------------------------------------------------------------- #}

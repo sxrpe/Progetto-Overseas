@@ -1,0 +1,50 @@
+{#
+  PAGINA DI ACCESSO  ->  da scrivere in FASE 6.
+
+  COSA DEVE CONTENERE
+    - un form con method="post", due campi (email, password) e un pulsante
+    - il campo email ripopolato dopo un errore: non far riscrivere tutto
+    - nessun messaggio che riveli se l'email esiste: l'errore e' generico
+      e arriva come messaggio flash dalla route
+
+  COMPONENTI BOOTSTRAP UTILI
+    card, form-label, form-control, btn btn-dark, mb-3
+
+  VARIABILI CHE LA ROUTE DEVE PASSARE
+    email  -> il valore gia' digitato, stringa vuota la prima volta
+#}
+
+{% extends "base.html" %}
+{% block titolo %}Accesso{% endblock %}
+
+{% block contenuto %}
+  <div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+      <div class="card">
+        <div class="card-body">
+          <h1 class="h4 mb-3">Accesso</h1>
+
+          <div class="alert alert-secondary small mb-0">
+            Da implementare in Fase 6.
+          </div>
+
+          {#
+          <form method="post">
+            <div class="mb-3">
+              <label class="form-label" for="email">Email</label>
+              <input class="form-control" type="email" id="email" name="email"
+                     value="{{ email }}" required autofocus>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="password">Password</label>
+              <input class="form-control" type="password" id="password"
+                     name="password" required>
+            </div>
+            <button class="btn btn-dark w-100" type="submit">Accedi</button>
+          </form>
+          #}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

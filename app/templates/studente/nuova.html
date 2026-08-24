@@ -1,0 +1,33 @@
+{#
+  CREAZIONE DI UNA PRATICA  ->  FASE 7.2
+
+  CAMPI RICHIESTI DALLA TRACCIA
+    anno accademico, istituto ospitante, periodo previsto, docente referente,
+    note (facoltative)
+
+  DUE REGOLE
+    1. I menu a tendina si popolano DAL DATABASE, mai scritti a mano qui.
+       L'elenco degli istituti e quello dei docenti arrivano dalla route.
+       Un elenco scritto a mano nel template si disallinea al primo
+       inserimento e non e' difendibile in relazione.
+    2. Dopo un errore, i valori gia' digitati vanno ripresentati. Far
+       riscrivere tutto all'utente e' il modo piu' rapido per farsi bocciare
+       l'usabilita' nella demo.
+
+  VALIDAZIONE
+    Quella del browser (required, type) e' un aiuto, non un controllo.
+    Ogni campo va rivalidato nella route, lato server.
+
+  VARIABILI DALLA ROUTE
+    istituti -> lista di Istituto attivi
+    docenti  -> lista di Utente con ruolo docente
+    dati     -> dizionario dei valori gia' inseriti (vuoto la prima volta)
+#}
+
+{% extends "base.html" %}
+{% block titolo %}Nuova pratica{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">Nuova pratica di mobilità</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 7.2.</div>
+{% endblock %}

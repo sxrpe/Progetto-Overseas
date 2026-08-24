@@ -1,0 +1,28 @@
+{#
+  MAPPING DEGLI ESAMI  ->  FASE 7.3
+
+  Gestione delle righe di corrispondenza fra esame estero ed esame di
+  Ca' Foscari. Sei campi per riga, tre per lato: codice, titolo, crediti.
+
+  DA MOSTRARE SEMPRE
+    Il TOTALE dei crediti esteri e il totale dei crediti interni, affiancati.
+    Lo squilibrio deve essere evidente a colpo d'occhio: e' il motivo piu'
+    frequente per cui un docente rifiuta un Learning Agreement.
+
+  VALIDAZIONI (nella route, non solo qui)
+    - nessun codice estero ripetuto nella stessa pratica
+    - crediti positivi e in un intervallo plausibile
+    - campi obbligatori non vuoti
+
+  BLOCCO PER STATO
+    Le righe si modificano solo negli stati che lo consentono. Quando la
+    pratica e' oltre, la pagina diventa di sola lettura.
+#}
+
+{% extends "base.html" %}
+{% block titolo %}Esami{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">Esami concordati</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 7.3.</div>
+{% endblock %}

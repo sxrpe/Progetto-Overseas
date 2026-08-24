@@ -1,0 +1,32 @@
+{#
+  CODA DELLE VALUTAZIONI IN ATTESA  ->  FASE 7.4 e 7.7
+
+  Documenti e proposte di modifica che aspettano una decisione, i piu' vecchi
+  per primi.
+
+  IL FORM DI DECISIONE
+    Due pulsanti nello stesso form, distinti dal valore inviato:
+
+      <button type="submit" name="azione" value="approva" class="btn btn-success">
+      <button type="submit" name="azione" value="rifiuta" class="btn btn-danger">
+
+    Cosi' la route legge request.form["azione"] e sa cosa fare, senza dover
+    scrivere due route separate.
+
+  LA MOTIVAZIONE
+    Obbligatoria in caso di rifiuto, facoltativa in caso di approvazione.
+    Il controllo va fatto nella route: se manca, si torna indietro con un
+    messaggio, non si salva un rifiuto senza motivo.
+    Nel database c'e' anche un CHECK che lo impedisce: la doppia protezione
+    e' voluta e va dichiarata in relazione.
+#}
+
+{% extends "base.html" %}
+{% from "_frammenti.html" import etichetta_esito %}
+
+{% block titolo %}Da valutare{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">In attesa di valutazione</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 7.4 e 7.7.</div>
+{% endblock %}

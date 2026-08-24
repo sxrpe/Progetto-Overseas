@@ -1,0 +1,30 @@
+{#
+  TUTTE LE PRATICHE (ufficio)  ->  FASE 7.5 e 7.10
+
+  L'ufficio e' l'unico ruolo che vede tutto. Qui il filtro non c'e' per
+  appartenenza, ma servono i filtri per consultazione: stato, anno
+  accademico, paese.
+
+  I FILTRI SI PASSANO IN QUERYSTRING, non in sessione:
+      /ufficio/pratiche?stato=chiusa
+  Cosi' il filtro e' condivisibile, resta nella cronologia del browser e
+  funziona con il pulsante indietro.
+  La route deve validare il valore ricevuto: se qualcuno scrive
+  ?stato=inventato, si risponde con un errore, non con una pagina rotta.
+
+  I DUE COMANDI DELL'UFFICIO
+    - "Verifica pre-partenza", visibile solo quando le condizioni ci sono
+    - "Chiudi pratica", visibile solo quando le condizioni ci sono
+  Entrambi vanno inviati in POST, mai come link: un GET non deve mai
+  modificare i dati (basterebbe che il browser precarichi il link).
+#}
+
+{% extends "base.html" %}
+{% from "_frammenti.html" import stato_pratica %}
+
+{% block titolo %}Tutte le pratiche{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">Tutte le pratiche</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 7.5 e 7.10.</div>
+{% endblock %}

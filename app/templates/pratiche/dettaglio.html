@@ -1,0 +1,53 @@
+{#
+  DETTAGLIO DELLA PRATICA  ->  da scrivere in FASE 7.
+
+  E' LA PAGINA PIU' IMPORTANTE DEL PROGETTO.
+  E' il punto da cui si raggiungono tutte le azioni, ed e' la schermata che si
+  vede di piu' nel video demo. La usano tutti e tre i ruoli: cambiano solo i
+  comandi disponibili.
+
+  IN ALTO, SEMPRE VISIBILI, LE TRE DOMANDE
+    1. in che STATO e' la pratica
+    2. cosa MANCA per andare avanti
+    3. CHI deve agire adesso
+  E' il modo piu' semplice per rendere l'applicazione comprensibile a chi la
+  guarda per la prima volta, docente compresa.
+
+  SEZIONI PREVISTE
+    - intestazione con stato e prossimo passo
+    - dati della pratica (anno, periodo, istituto, referente, studente)
+    - esami concordati, con totale dei crediti dei due lati
+    - documenti, con esito della valutazione e motivazione dell'eventuale rifiuto
+    - storico delle modifiche al Learning Agreement
+    - comandi, diversi per ruolo
+
+  REGOLA SUI COMANDI
+    Nascondere un pulsante NON e' un controllo di sicurezza: serve solo a non
+    confondere l'utente. Il controllo vero sta nella route, lato server.
+    Quindi qui gli "if" servono all'usabilita', non alla protezione.
+
+  VARIABILI CHE LA ROUTE DEVE PASSARE
+    pratica       -> l'oggetto Pratica
+    modificabile  -> bool, se l'utente corrente puo' modificarla
+    puo_decidere  -> bool, se e' il docente e ci sono decisioni da prendere
+#}
+
+{% extends "base.html" %}
+{% from "_frammenti.html" import stato_pratica, etichetta_esito %}
+
+{% block titolo %}Pratica{% endblock %}
+
+{% block contenuto %}
+  <div class="alert alert-secondary">Da implementare in Fase 7.</div>
+
+  {#
+  <h1 class="h4">Pratica #{{ pratica.id }} — {{ pratica.istituto.nome }}</h1>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <p class="mb-1"><strong>Stato:</strong> {{ stato_pratica(pratica.stato) }}</p>
+      <p class="mb-0"><strong>Prossimo passo:</strong> ...</p>
+    </div>
+  </div>
+  #}
+{% endblock %}

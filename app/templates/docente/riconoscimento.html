@@ -1,0 +1,31 @@
+{#
+  RICONOSCIMENTO DEGLI ESAMI  ->  FASE 7.9
+
+  Il docente approva o rifiuta OGNI SINGOLO ESAME, non l'intera pratica.
+  La traccia e' esplicita, e il caso misto — alcuni esami riconosciuti e
+  altri no — deve funzionare: e' uno dei casi che vanno mostrati nel video.
+
+  QUINDI
+    Un form per riga, oppure un form solo con i campi indicizzati per id
+    dell'esame. La prima soluzione e' piu' semplice e piu' difficile da
+    sbagliare; la seconda e' piu' comoda per il docente. Con due settimane:
+    la prima.
+
+  DA MOSTRARE PER OGNI RIGA
+    esame estero, esame interno, crediti dei due lati, voto, data di
+    superamento, esito attuale, e il comando di decisione se ancora in attesa
+
+  INDICATORE DI AVANZAMENTO
+    "3 esami su 5 riconosciuti" in cima: serve all'ufficio per sapere quando
+    puo' chiudere la pratica, e a te per mostrarlo nel video.
+#}
+
+{% extends "base.html" %}
+{% from "_frammenti.html" import etichetta_esito %}
+
+{% block titolo %}Riconoscimento esami{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">Riconoscimento degli esami</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 7.9.</div>
+{% endblock %}

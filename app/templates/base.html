@@ -1,0 +1,117 @@
+{#
+  TEMPLATE BASE — la struttura comune a tutte le pagine.
+
+  Ogni altro template comincia con  {% extends "base.html" %}  e riempie
+  soltanto i blocchi. Nessuna pagina deve ripetere <html>, <head>, la barra
+  di navigazione o i messaggi: se lo fa, una modifica al menu va poi
+  riportata a mano in venti file.
+
+  I BLOCCHI DISPONIBILI
+      {% block titolo %}      il titolo nella scheda del browser
+      {% block contenuto %}   il corpo della pagina
+      {% block script %}      eventuale JavaScript specifico della pagina
+
+  Bootstrap 5 arriva da CDN. Se preferisci non dipendere dalla rete durante
+  la demo, scarica i due file in app/static/ e cambia i link: la pagina
+  funziona identica.
+#}
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titolo %}Overseas{% endblock %} · Mobilità Overseas</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="d-flex flex-column min-vh-100 bg-body-tertiary">
+
+{# ---------- BARRA DI NAVIGAZIONE ------------------------------------- #}
+{# Il menu cambia in base al ruolo dell'utente collegato. Nascondere una   #}
+{# voce NON e' un controllo di sicurezza: serve solo a non confondere      #}
+{# l'utente. Il controllo vero sta sempre nella route, lato server.        #}
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container">
+    <a class="navbar-brand fw-semibold" href="{{ url_for('pubblico.home') }}">
+      Overseas
+    </a>
+
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+            data-bs-target="#menu" aria-controls="menu"
+            aria-expanded="false" aria-label="Apri il menu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="menu">
+      <ul class="navbar-nav me-auto">
+        {% if current_user.is_authenticated %}
+          {# FASE 6 — sostituire con le voci vere, in base a current_user.ruolo
+          {% if current_user.ruolo.value == 'studente' %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('studente.elenco_pratiche') }}">
+                Le mie pratiche</a>
+            </li>
+          {% elif current_user.ruolo.value == 'docente' %}
+            ...
+          {% endif %}
+          #}
+        {% endif %}
+      </ul>
+
+      <ul class="navbar-nav">
+        {% if current_user.is_authenticated %}
+          <li class="nav-item">
+            <span class="navbar-text me-3">{{ current_user.email }}</span>
+          </li>
+          {# FASE 6 — scommentare quando esiste la route auth.logout.
+             Finche' la route non esiste, url_for() solleverebbe un errore.
+          <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('auth.logout') }}">Esci</a>
+          </li>
+          #}
+        {% else %}
+          <li class="nav-item">
+            <span class="navbar-text small text-white-50">non autenticato</span>
+          </li>
+        {% endif %}
+      </ul>
+    </div>
+  </div>
+</nav>
+
+{# ---------- CONTENUTO ------------------------------------------------- #}
+<main class="container my-4 flex-grow-1" style="max-width: 62rem;">
+
+  {# Messaggi flash: il canale unico per parlare all'utente.
+     Nel codice Python:  flash("Pratica creata.", "success")
+     Le categorie usate nel progetto sono tre: success, warning, error. #}
+  {% with messaggi = get_flashed_messages(with_categories=true) %}
+    {% for categoria, testo in messaggi %}
+      <div class="alert alert-dismissible fade show
+                  {% if categoria == 'error' %}alert-danger
+                  {% elif categoria == 'warning' %}alert-warning
+                  {% else %}alert-success{% endif %}"
+           role="alert">
+        {{ testo }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"
+                aria-label="Chiudi"></button>
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  {% block contenuto %}{% endblock %}
+</main>
+
+{# ---------- PIÈ DI PAGINA --------------------------------------------- #}
+<footer class="border-top py-3 mt-auto">
+  <div class="container text-center text-body-secondary small">
+    Basi di Dati Mod. 2 — A.A. 2025/2026 — Università Ca' Foscari Venezia
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% block script %}{% endblock %}
+</body>
+</html>

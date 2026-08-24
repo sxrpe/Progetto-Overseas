@@ -1,0 +1,22 @@
+{#
+  PRATICHE DI CUI IL DOCENTE E' REFERENTE  ->  FASE 7.4
+
+  Come per l'elenco dello studente: il filtro sta NELLA QUERY,
+      .where(Pratica.docente_id == current_user.id)
+  non nel template.
+
+  ORDINAMENTO UTILE
+    Per stato, mettendo per prime quelle che aspettano una sua decisione.
+    Un docente apre questa pagina per sapere cosa deve fare, non per
+    consultare un archivio.
+#}
+
+{% extends "base.html" %}
+{% from "_frammenti.html" import stato_pratica %}
+
+{% block titolo %}Pratiche da seguire{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">Pratiche di cui sono referente</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 7.4.</div>
+{% endblock %}

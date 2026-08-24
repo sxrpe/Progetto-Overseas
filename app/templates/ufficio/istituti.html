@@ -1,0 +1,23 @@
+{#
+  GESTIONE DEGLI ISTITUTI PARTNER  ->  FASE 7.1
+
+  E' la funzionalita' piu' semplice del progetto: falla per prima, serve a
+  prendere confidenza con il ciclo form -> route -> database -> pagina.
+
+  ATTRIBUTI MINIMI RICHIESTI DALLA TRACCIA
+    nome, paese, citta'
+
+  DISATTIVAZIONE, NON CANCELLAZIONE
+    Un istituto non si cancella: si mette "attivo = false". Le pratiche
+    storiche continuano a riferirsi a esso, e la chiave esterna con RESTRICT
+    impedirebbe comunque la cancellazione.
+    Nel menu a tendina della creazione pratica compaiono solo gli attivi.
+#}
+
+{% extends "base.html" %}
+{% block titolo %}Istituti partner{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">Istituti partner</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 7.1.</div>
+{% endblock %}

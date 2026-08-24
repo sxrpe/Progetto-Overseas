@@ -1,0 +1,15 @@
+{# Pagina di errore unica, parametrizzata dal codice HTTP.
+   Registrata in app/__init__.py per 403, 404 e 500. #}
+
+{% extends "base.html" %}
+{% block titolo %}Errore {{ codice }}{% endblock %}
+
+{% block contenuto %}
+  <div class="text-center py-5">
+    <p class="display-4 fw-light text-body-secondary">{{ codice }}</p>
+    <p class="lead">{{ messaggio }}</p>
+    <a href="{{ url_for('pubblico.home') }}" class="btn btn-dark mt-2">
+      Torna alla pagina iniziale
+    </a>
+  </div>
+{% endblock %}

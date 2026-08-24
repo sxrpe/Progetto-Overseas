@@ -1,0 +1,56 @@
+{#
+  ELENCO DELLE PROPRIE PRATICHE (studente)  ->  FASE 7.2
+
+  ATTENZIONE, LA REGOLA PIU' IMPORTANTE DI QUESTO FILE:
+  qui NON si filtra. Il template riceve gia' solo le pratiche dello studente
+  collegato, perche' il filtro sta nella query dentro la route:
+      .where(Pratica.studente_id == current_user.id)
+  Caricare tutto e nascondere le righe altrui qui dentro non e' un filtro,
+  e' una falla di sicurezza.
+
+  PRESENTAZIONE
+  Schede Bootstrap (card), non tabelle: la traccia non lo impone, ma un
+  elenco di schede resta leggibile anche a finestra stretta durante il video.
+
+  DA PREVEDERE
+    - il caso di elenco vuoto, con un messaggio che dica cosa fare
+    - l'etichetta di stato sempre nella stessa posizione
+    - un solo pulsante per riga, "Apri", verso pratiche.dettaglio
+
+  VARIABILI DALLA ROUTE
+    pratiche -> lista di Pratica, gia' filtrata e ordinata
+#}
+
+{% extends "base.html" %}
+{% from "_frammenti.html" import stato_pratica %}
+
+{% block titolo %}Le mie pratiche{% endblock %}
+
+{% block contenuto %}
+  <h1 class="h4 mb-3">Le mie pratiche</h1>
+  <div class="alert alert-secondary">Da implementare in Fase 7.2.</div>
+
+  {#
+  {% if not pratiche %}
+    <div class="card"><div class="card-body">
+      <p class="mb-2">Non hai ancora nessuna pratica.</p>
+      <a class="btn btn-dark" href="{{ url_for('studente.nuova_pratica') }}">
+        Crea la prima</a>
+    </div></div>
+  {% endif %}
+
+  {% for p in pratiche %}
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6">{{ p.istituto.nome }} — {{ p.istituto.citta }}</h2>
+        <p class="mb-2 text-body-secondary small">
+          Anno {{ p.anno_accademico }} · referente {{ p.docente.nominativo }}
+        </p>
+        {{ stato_pratica(p.stato) }}
+        <a class="btn btn-sm btn-dark float-end"
+           href="{{ url_for('pratiche.dettaglio', pratica_id=p.id) }}">Apri</a>
+      </div>
+    </div>
+  {% endfor %}
+  #}
+{% endblock %}
