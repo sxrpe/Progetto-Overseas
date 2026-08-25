@@ -47,19 +47,19 @@ def create_app(nome_config: str = "dev") -> Flask:
     from app import models  # noqa: F401
 
     # ------------------------------------------------------------------
-    # FASE 6 — Flask-Login: da scommentare quando esiste il modello Utente.
+    # Flask-Login: la callback che, partendo dall'identita' salvata nel
+    # cookie di sessione, ricostruisce l'oggetto utente.
     #
-    # E' la callback che, partendo dall'identita' salvata nel cookie di
-    # sessione, ricostruisce l'oggetto utente. Senza di questa, il login
-    # "riesce" ma current_user resta anonimo.
-    # ------------------------------------------------------------------
+    # Deve esistere fin da subito: appena un template nomina current_user,
+    # Flask-Login la cerca, e senza di essa solleva un'eccezione.
     #
-    # from app.models import Utente
-    #
-    # @login_manager.user_loader
-    # def carica_utente(id_utente: str) -> "Utente | None":
+    # FASE 6 — sostituire il corpo con:
+    #     from app.models import Utente
     #     return db.session.get(Utente, int(id_utente))
-
+    # ------------------------------------------------------------------
+    @login_manager.user_loader
+    def carica_utente(id_utente: str):
+        return None  # nessun utente finche' non esiste il modello Utente
     # ------------------------------------------------------------------
     # Blueprint: un'area del sito per ogni gruppo di funzionalita'.
     # L'URL dice gia' chi puo' accedere: tutto cio' che sta sotto
