@@ -1,0 +1,27 @@
+# Ambiente virtuale
+.venv/
+venv/
+env/
+
+# Configurazione con credenziali reali: NON deve mai finire su GitHub
+.env
+
+# Documenti caricati dagli utenti
+uploads/*
+!uploads/.gitkeep
+
+# Database locale SQLite di sviluppo
+*.db
+*.sqlite3
+
+# Cache di Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# PyCharm
+.idea/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

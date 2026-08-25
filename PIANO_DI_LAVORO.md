@@ -358,184 +358,229 @@ Obiettivo: partire tutti dalla stessa base. Ogni ora spesa qui ne fa risparmiare
 
 > **Concetti in gioco:** nessuno ancora — qui si prepara solo la macchina. Se non hai letto il Capitolo introduttivo, leggilo prima della Fase 1: da lì in poi viene dato per acquisito.
 >
-> **File che tocchi:** `.env`, `requirements.txt`, più la configurazione di PyCharm e GitHub. Nessun file dell'applicazione.
+> **File che tocchi:** `.env`, `.gitignore`, `requirements.txt`, più la configurazione di PyCharm e GitHub. Nessun file
+> dell'applicazione.
+
+Tempo: circa un'ora la prima volta. Va fatta **su tutte e tre le macchine**. La procedura è scritta per **macOS**, che è
+il sistema di tutti e tre.
+
+---
 
 ## 0.1 Decisioni tecnologiche — già prese
 
 Queste scelte sono decise, non aperte. Cambiarle a metà progetto costa più che accettarle ora.
 
 - **DBMS: PostgreSQL.** È quello consigliato dalla docente ed è l'unico che permette di mostrare trigger, viste materializzate, indici parziali e ruoli. SQLite resta utilizzabile come ripiego per far girare l'applicazione su una macchina non configurata, ma rinuncia a metà degli aspetti raccomandati dalla traccia.
+- **Versione di PostgreSQL: qualunque dalla 14 in su.** Trigger in PL/pgSQL, viste materializzate, indici unici
+  parziali, ruoli e `GRANT`, aggregazioni con `FILTER`: c'è tutto ciò che la traccia chiede di mostrare. Se ne hai già
+  una installata, tienila e non aggiornare.
+- **Installazione con Homebrew, non con Postgres.app.** Con Homebrew il database diventa un servizio di sistema che
+  parte da solo all'accensione; Postgres.app va avviata a mano ogni volta e va in conflitto sulla porta 5432.
+- **Python 3.13.** Matura e con pacchetti precompilati per tutto. Le versioni appena uscite non valgono il rischio a due
+  settimane dalla consegna.
 - **Accesso ai dati: Flask-SQLAlchemy con l'ORM.** La traccia dice *"uso di Expression Language **o** ORM"*: sono alternative, non un elenco di cose da fare entrambe. L'ORM soddisfa il requisito per intero.
 - **Interrogazioni analitiche: `select()` in Expression Language**, raccolte in un unico modulo. Restano indipendenti dal dialetto SQL e sono già pronte per la sezione "Query principali" della relazione. L'SQL testuale con `text()` si usa solo dove la versione astratta diventerebbe illeggibile, e la scelta va motivata.
-- **Front-end: Bootstrap 5.** È fra i framework citati dalla traccia, è il più diffuso e quindi il più facile da cercare quando qualcosa non torna, e porta con sé una griglia responsiva, i componenti già pronti (schede, avvisi, barra di navigazione, badge) e uno stile uniforme senza scrivere CSS. Si carica da CDN con due righe nel template base. Il JavaScript di Bootstrap serve solo ai suoi componenti — menu a scomparsa e chiusura degli avvisi — e non conta come "uso di JavaScript" nel senso della traccia: non scriveremo logica applicativa lato browser, perché la traccia dice esplicitamente che non è richiesta e non incide sulla valutazione.
+- **Front-end: Bootstrap 5.** È fra i framework citati dalla traccia, è il più diffuso e quindi il più facile da cercare
+  quando qualcosa non torna, e porta con sé una griglia responsiva e i componenti già pronti. Si carica da CDN con due
+  righe nel template base. Il suo JavaScript serve solo ai componenti — menu a scomparsa, chiusura degli avvisi — e non
+  conta come "uso di JavaScript" nel senso della traccia: non scriveremo logica applicativa lato browser.
 - **Autenticazione: Flask-Login.** È quella vista a lezione. L'autorizzazione va invece scritta a mano, perché Flask-Login non la fornisce.
 - **Hashing delle password: Passlib con pbkdf2_sha256.** È puro Python e non richiede compilatori installati, quindi si installa senza problemi su tutte e tre le macchine.
 
 Una nota da riportare in relazione: **l'ORM non sostituisce il Core, ci sta sopra.** La mappatura dichiarativa genera oggetti `Table` del Core, la `Session` incapsula una `Connection`, e `select()` è la stessa identica funzione nei due modi. Scegliere l'ORM non significa rinunciare al Core: significa non scriverlo a mano.
 
-## 0.2 Installazione degli strumenti
+---
 
-Da fare su tutte e tre le macchine, prima di scrivere qualsiasi cosa.
+## 0.2 Cosa hai già
 
-- **Python 3.11 o superiore.** Su Windows, durante l'installazione, spuntare "Add Python to PATH": è la causa numero uno dei problemi successivi.
-- **PostgreSQL 14 o superiore.** Durante l'installazione viene chiesta la password dell'utente `postgres`: annotarla, serve subito dopo. Su Windows viene installato anche pgAdmin, comodo per ispezionare il database a colpo d'occhio.
-- **Git.** Su Windows conviene Git for Windows, che porta con sé Git Bash.
-- **PyCharm.** La versione Community è gratuita e sufficiente. La Professional è gratuita per gli studenti con l'account universitario e aggiunge il pannello Database integrato, che è molto comodo ma non indispensabile.
+Prima di installare qualcosa, guarda cosa c'è. Incolla questo blocco nel Terminale:
 
-Verifica finale, da terminale:
-
+```bash
+echo "--- Python ---";     python3 --version 2>/dev/null || echo "assente"
+echo "--- Git ---";        git --version 2>/dev/null || echo "assente"
+echo "--- Homebrew ---";   brew --version 2>/dev/null | head -1 || echo "assente"
+echo "--- psql ---";       psql --version 2>/dev/null || echo "assente"
+echo "--- formule postgres ---"; brew list --versions 2>/dev/null | grep -i postgres || echo "nessuna"
+echo "--- servizi ---";    brew services list 2>/dev/null | grep -i postgres || echo "nessuno"
+echo "--- porta 5432 ---"; lsof -i :5432 2>/dev/null | head -3 || echo "libera"
 ```
-python --version
-psql --version
-git --version
+
+Come leggere il risultato:
+
+- **Homebrew assente** → parti dalla 0.3.
+- **Python assente, sotto la 3.11, oppure 3.14 o superiore** → installa la 3.13 come descritto nella 0.3.
+- **Una formula postgres già installata** → non installarne un'altra: salta direttamente ad "Avvia il servizio".
+- **Porta 5432 occupata da qualcosa che non hai avviato tu** → hai Postgres.app attiva, leggi il riquadro nella 0.3.
+
+---
+
+## 0.3 Installazione degli strumenti
+
+### Strumenti da riga di comando di Apple
+
+Portano con sé anche **Git**, quindi quel punto è già coperto.
+
+```bash
+xcode-select --install
 ```
 
-Se uno dei tre comandi non viene riconosciuto, il problema è nella variabile PATH e va risolto adesso, non dopo.
+Si apre una finestra, accetti, cinque minuti.
 
-## 0.3 Creazione del repository su GitHub
+### Homebrew
 
-Un solo membro del gruppo crea il repository; gli altri due lo clonano.
+Apri [brew.sh](https://brew.sh) e copia da lì il comando di installazione — meglio prenderlo dal sito che da un
+documento, così sei sicuro sia quello corrente.
+
+A fine installazione il terminale stampa due righe da eseguire per aggiungere Homebrew al PATH. **Eseguile davvero**,
+altrimenti alla prossima apertura del terminale `brew` non viene trovato.
+
+```bash
+brew --version
+```
+
+### Python 3.13
+
+```bash
+brew install python@3.13
+/opt/homebrew/bin/python3.13 --version
+```
+
+Deve stampare `Python 3.13.x`. Se il percorso non esiste, trovalo con `brew --prefix python@3.13`.
+
+> **Non toccare il Python di sistema** di macOS. Serve al sistema operativo, è vecchio, e installarci dentro dei
+> pacchetti è un ottimo modo per rompere qualcosa.
+
+Prendi nota del percorso completo: serve nella 0.5, e usarlo esplicitamente è ciò che evita di ritrovarsi con la
+versione sbagliata.
+
+### PostgreSQL
+
+> **Se hai Postgres.app, disinstallala prima.** Chiudila dalla barra dei menu, poi:
+> ```bash
+> rm -rf /Applications/Postgres.app
+> rm -rf ~/Library/Application\ Support/Postgres
+> sudo rm -f /etc/paths.d/postgresapp
+> ```
+> e riapri il terminale. Se resta, va in conflitto con Homebrew sulla porta 5432.
+
+Se non hai nessuna formula postgres:
+
+```bash
+brew install postgresql@17
+echo 'export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Se `postgresql@17` non esiste, guarda cosa c'è con `brew search postgresql` e prendi il numero più alto disponibile. Se
+invece `psql --version` risponde già, il PATH è a posto e non devi aggiungere niente.
+
+**Avvia il servizio**, mettendo il numero della tua versione:
+
+```bash
+brew services start postgresql@17
+brew services list       # deve dire "started"
+lsof -i :5432            # deve mostrare un processo postgres in ascolto
+```
+
+Da adesso riparte da solo a ogni accensione del Mac.
+
+### PyCharm
+
+```bash
+brew install --cask pycharm-ce
+```
+
+La versione Community basta. La Professional è gratuita con l'account universitario e aggiunge il pannello Database
+integrato, comodo ma non indispensabile.
+
+---
+
+## 0.4 Il repository su GitHub
+
+Lo crea **una sola persona**, gli altri due lo clonano.
 
 - Su GitHub: **New repository**, nome del progetto, visibilità **privata**.
-- **Non** spuntare "Add a README", "Add .gitignore" e "Choose a license": il repository deve nascere vuoto, altrimenti il primo push da PyCharm richiede una fusione inutile.
-- In **Settings → Collaborators**, aggiungere gli altri due componenti del gruppo.
-- Sempre in **Settings → Branches**, valutare una regola di protezione su `main` che richieda una pull request: costringe a non spingere direttamente sul branch principale, che è la principale causa di conflitti in un gruppo da tre.
+- **Non** spuntare "Add a README", "Add .gitignore" e "Choose a license": il repository deve nascere vuoto, altrimenti
+  il primo push richiede una fusione inutile.
+- In **Settings → Collaborators**, aggiungere gli altri due componenti.
+- In **Settings → Branches**, valutare una regola di protezione su `main` che richieda una pull request.
 
-Sull'autenticazione, una precisazione che fa perdere tempo a molti: **GitHub non accetta più la password dell'account** per le operazioni Git. Le due strade sono:
+**Sull'autenticazione:** GitHub non accetta più la password dell'account per le operazioni Git. Le due strade sono un
+**token personale** (Settings → Developer settings → Personal access tokens → Tokens classic, permesso `repo`), oppure
+una **chiave SSH** generata con `ssh-keygen -t ed25519 -C "tua@email"` e incollata in Settings → SSH and GPG keys.
 
-- **Token personale**, da **Settings → Developer settings → Personal access tokens → Tokens (classic)**, con il permesso `repo`. Il token si usa al posto della password quando Git la chiede. Va copiato subito, perché non viene più mostrato.
-- **Chiave SSH**, più comoda a lungo termine: si genera con `ssh-keygen -t ed25519 -C "tua@email"` e si incolla il contenuto del file `.pub` in **Settings → SSH and GPG keys**.
+In PyCharm, in **Settings → Version Control → GitHub**, aggiungi l'account una volta sola: da lì in poi gestisce lui le
+credenziali.
 
-## 0.4 Configurazione di PyCharm
+> **Chi ospita il repository** dovrebbe essere la persona che si occupa dell'integrazione, cioè chi ogni sera fa il
+> merge e verifica che `main` parta.
 
-**Collegare l'account GitHub.** In **Settings → Version Control → GitHub**, aggiungere l'account con "Log in via GitHub" oppure con il token. Fatto una volta, PyCharm gestisce da solo le credenziali di tutte le operazioni Git.
+---
 
-**Clonare il progetto.** Dalla schermata iniziale, **Get from VCS**, incollare l'URL del repository e scegliere la cartella locale. Gli altri due componenti partono da qui.
+## 0.5 Il progetto e l'ambiente virtuale
 
-**Creare l'ambiente virtuale.** In **Settings → Project → Python Interpreter → Add Interpreter → Add Local Interpreter → Virtualenv Environment → New**, con posizione `.venv` dentro la cartella del progetto e l'interprete di sistema come base. PyCharm attiverà l'ambiente in automatico in ogni terminale che apre.
+### Scarica il progetto
 
-**Installare le dipendenze.** Aprire il terminale integrato (Alt+F12) e lanciare `pip install -r requirements.txt`. Quando PyCharm riconosce il file `requirements.txt` mostra anche un banner con un pulsante per installarle.
-
-**Configurare l'avvio.** In alto a destra, **Edit Configurations → + → Flask server**:
-
-- *Target type*: Script path — puntare a `wsgi.py`
-- *FLASK_DEBUG*: spuntato
-- *Working directory*: la cartella radice del progetto
-
-Da quel momento l'applicazione parte con il pulsante di esecuzione e si possono usare i punti di interruzione del debugger, che valgono dieci volte le stampe a video.
-
-**Impostazioni che conviene attivare subito:**
-
-- **Settings → Editor → General → On Save**: attivare "Reformat code" e "Remove trailing blank lines". Il codice resta uniforme fra tre persone senza discussioni.
-- **Settings → Editor → Code Style → Python**: lasciare il limite di riga a 88 o 100 caratteri e rispettarlo.
-- **Settings → Tools → Actions on Save**: attivare "Optimize imports", così spariscono gli import inutilizzati.
-- Se avete PyCharm Professional, nel pannello **Database** aggiungete la connessione a PostgreSQL: potete ispezionare tabelle e lanciare query senza uscire dall'editor.
-
-## 0.5 Struttura delle cartelle
-
-Questa è la struttura definitiva. Va creata adesso, vuota, e non riorganizzata più.
-
-```
-overseas/
-├── .env                     ← configurazione locale, MAI su GitHub
-├── .env.example             ← modello con valori fittizi, questo sì versionato
-├── .gitignore
-├── README.md                ← installazione, avvio e spiegazione delle cartelle
-├── requirements.txt         ← elenco delle dipendenze
-├── config.py                ← lettura della configurazione
-├── wsgi.py                  ← punto di ingresso dell'applicazione
-│
-├── app/
-│   ├── __init__.py          ← application factory: create_app()
-│   ├── extensions.py        ← istanze di SQLAlchemy e Flask-Login
-│   ├── enums.py             ← valori enumerati e transizioni di stato
-│   ├── models.py            ← modelli ORM: UNICA definizione dello schema
-│   ├── security.py          ← password, controllo di ruolo e di appartenenza
-│   ├── queries.py           ← interrogazioni analitiche, tutte insieme
-│   │
-│   ├── blueprints/
-│   │   ├── pubblico.py      ← home e smistamento per ruolo
-│   │   ├── auth.py          ← accesso e uscita
-│   │   ├── pratiche.py      ← dettaglio pratica, condiviso dai tre ruoli
-│   │   ├── studente.py      ← area studente
-│   │   ├── docente.py       ← area docente referente
-│   │   └── ufficio.py       ← area ufficio Overseas
-│   │
-│   ├── templates/
-│   │   ├── base.html        ← struttura comune, estesa da tutti
-│   │   ├── home.html
-│   │   ├── errore.html
-│   │   ├── auth/login.html
-│   │   ├── pratiche/dettaglio.html
-│   │   ├── studente/…
-│   │   ├── docente/…
-│   │   └── ufficio/…
-│   │
-│   └── static/css/style.css
-│
-├── scripts/
-│   ├── __init__.py                   ← rende scripts/ un pacchetto (per -m)
-│   ├── init_db.py                    ← crea lo schema
-│   ├── schema_extra_postgres.sql     ← trigger, viste, indici, ruoli
-│   └── seed.py                       ← dati di prova
-│
-└── uploads/                 ← documenti caricati, esclusa dal versionamento
+```bash
+cd ~/Desktop
+git clone <url-del-repository> Project-Overseas
+cd Project-Overseas
 ```
 
-Tre criteri spiegano questa disposizione, e vanno riportati nella relazione:
+> **La cartella non deve avere spazi, accenti o maiuscole strane.** `Project-Overseas` va bene, `PROGETTO BASE DI DATI`
+> no: gli spazi nei percorsi ti faranno litigare con il terminale per due settimane.
+>
+> E una volta creato l'ambiente virtuale, **la cartella non si sposta e non si rinomina più**. Un venv contiene percorsi
+> assoluti: se la sposti, smette di funzionare e va rifatto.
 
-- **Un blueprint per area funzionale.** L'URL dice già chi può accedere: tutto ciò che sta sotto `/docente/` è per i docenti. Rende i permessi verificabili a colpo d'occhio.
-- **Il dettaglio della pratica ha un blueprint proprio**, perché è l'unica pagina che serve a tutti e tre i ruoli. Metterla sotto `/studente/` avrebbe costretto un docente a navigare in un URL che dice il contrario di quello che sta facendo.
-- **La logica di accesso ai dati sta fuori dalle route.** Le interrogazioni non banali stanno in `queries.py`, i controlli di autorizzazione in `security.py`. Le route si occupano solo di HTTP: leggono la richiesta, chiamano, restituiscono una risposta.
+Se parti da uno ZIP invece che da Git, estrailo **da terminale** e non dal Finder, che a volte perde i file nascosti:
 
-## 0.6 Il file delle dipendenze
-
-Il file si chiama `requirements.txt`, sta nella cartella radice e **si installa**, non si legge:
-
+```bash
+unzip overseas_scaffold.zip
+ls -la
 ```
+
+Devono comparire `.gitignore` e `.env.example`. Se mancano, vedi la diagnosi in 0.16, caso 5.
+
+### Crea l'ambiente virtuale
+
+```bash
+/opt/homebrew/bin/python3.13 -m venv .venv
+source .venv/bin/activate
+```
+
+Il percorso completo dell'interprete è il punto chiave: se scrivi solo `python3 -m venv`, ti ritrovi la versione di
+sistema che magari è un'altra.
+
+Quando l'ambiente è attivo il prompt comincia con `(.venv)`.
+
+### Installa le dipendenze e verifica
+
+```bash
+pip install --upgrade pip
 pip install -r requirements.txt
+
+python --version                  # 3.13.x
+which python                      # .../Project-Overseas/.venv/bin/python
+python -c "import flask, sqlalchemy, psycopg; print('ok')"
 ```
 
-Non è uno script eseguibile: è un elenco che `pip` interpreta. È il modo standard, ed è quello che la docente si aspetta di trovare nel pacchetto di consegna, perché le permette di ricostruire l'ambiente con un comando solo.
+Se `which python` non punta dentro `.venv`, l'ambiente non è attivo: vedi 0.16, caso 2.
 
-```
-# ---------------------------------------------------------------------------
-# Dipendenze del progetto Overseas
-#
-# Installazione (dopo aver attivato l'ambiente virtuale):
-#     pip install -r requirements.txt
-#
-# Le versioni sono vincolate al minor release: si accettano gli aggiornamenti
-# correttivi ma non i cambi di major version, che potrebbero rompere il codice.
-# ---------------------------------------------------------------------------
+---
 
-Flask~=3.1.0                # framework web
-Flask-SQLAlchemy~=3.1.1     # integrazione SQLAlchemy <-> Flask
-Flask-Login~=0.6.3          # autenticazione basata su sessione
-SQLAlchemy~=2.0.36          # ORM e Core
-passlib~=1.7.4              # hashing delle password (pbkdf2_sha256)
-python-dotenv~=1.0.1        # lettura della configurazione dal file .env
+## 0.6 I file di configurazione
 
-# Driver del DBMS: lasciare attiva SOLO la riga del database realmente usato.
-psycopg[binary]~=3.2.3      # PostgreSQL
-# SQLite non richiede driver: e' incluso in Python.
-```
+### `.gitignore`
 
-Due precisazioni sull'uso:
-
-- **L'operatore `~=` blocca il cambio di versione maggiore.** `Flask~=3.1.0` accetta la 3.1.4 ma non la 3.2. Serve a evitare che fra due settimane un aggiornamento cambi il comportamento di una libreria durante la registrazione del video.
-- **Aggiungere una dipendenza è un'operazione in due passi**: la si installa e la si scrive nel file. Se si dimentica il secondo passo, il progetto funziona sulla propria macchina e non su quella degli altri. È il classico "da me funziona".
-
-Se volete l'automatismo completo, esiste `pip freeze > requirements.txt`, che scrive l'elenco esatto di tutto ciò che è installato. Sconsigliato in questo caso: produce quaranta righe fra cui le dipendenze delle dipendenze, illeggibile per chi corregge. Meglio un file scritto a mano e commentato.
-
-## 0.7 I file di configurazione
-
-**`.gitignore`** — decide cosa Git deve ignorare. Va creato **prima** del primo commit: un file già finito nella cronologia non sparisce aggiungendolo dopo.
+Decide cosa Git deve ignorare. Va creato **prima** del primo commit: un file già finito nella cronologia non sparisce
+aggiungendolo dopo.
 
 ```
 # Ambiente virtuale
 .venv/
 venv/
+env/
 
 # Configurazione con credenziali reali: NON deve mai finire su GitHub
 .env
@@ -551,6 +596,7 @@ uploads/*
 # Cache Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 
 # PyCharm
 .idea/
@@ -560,56 +606,366 @@ __pycache__/
 Thumbs.db
 ```
 
-**`.env`** — contiene i valori veri e non si versiona. **`.env.example`** — contiene gli stessi nomi con valori fittizi e si versiona, così chi clona il repository sa cosa deve impostare.
+### `.env.example` e `.env`
 
-```
-# Chiave usata per firmare il cookie di sessione.
-# Generarne una nuova con:
-#     python -c "import secrets; print(secrets.token_hex(32))"
-SECRET_KEY=sostituire-con-una-stringa-casuale-lunga
+**`.env.example`** contiene i nomi delle variabili con valori fittizi e **si versiona**: dice ai compagni cosa devono
+impostare. **`.env`** contiene i valori veri e **non si versiona mai**.
 
-# Stringa di connessione al database.
-DATABASE_URL=postgresql+psycopg://overseas_app:password@localhost:5432/overseas
-# In alternativa, per partire subito senza PostgreSQL:
-# DATABASE_URL=sqlite:///overseas.db
-
-UPLOAD_FOLDER=uploads
-MAX_UPLOAD_MB=10
-
-# Stampa sul terminale l'SQL generato: utilissimo in sviluppo.
-SQL_ECHO=0
+```bash
+cp .env.example .env
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-La riga `SQL_ECHO` merita attenzione: attivarla mostra ogni istruzione che SQLAlchemy manda al database. È lo strumento con cui si scoprono le query in eccesso, e serve anche per la relazione, perché permette di riportare l'SQL realmente generato accanto alla query scritta in Python.
+Apri `.env` in PyCharm e sistema due righe, sostituendo `TUONOME` con l'output di `whoami`:
 
-## 0.8 Convenzioni da fissare per iscritto
+```
+SECRET_KEY=incolla-qui-la-stringa-generata
+DATABASE_URL=postgresql+psycopg://TUONOME@localhost:5432/overseas
+```
+
+Due dettagli che fanno perdere tempo:
+
+- **Nessuna password nella stringa.** Fra `//` e `@` c'è solo il nome utente: su Mac con Homebrew l'autenticazione
+  locale è basata sull'utente di sistema.
+- **Una sola riga `DATABASE_URL` attiva.** Se resta anche quella con `sqlite`, vale l'ultima e PostgreSQL non viene mai
+  usato. Commenta l'altra con `#`.
+
+Il resto (`UPLOAD_FOLDER`, `MAX_UPLOAD_MB`, `SQL_ECHO`) lascialo com'è. La riga `SQL_ECHO` merita attenzione: portandola
+a `1` vedi ogni istruzione che SQLAlchemy manda al database. È lo strumento con cui si scoprono le query in eccesso, e
+serve per la relazione, perché permette di riportare l'SQL realmente generato accanto alla query scritta in Python.
+
+---
+
+## 0.7 Il database e la connessione
+
+```bash
+createdb overseas
+psql overseas -c "SELECT current_user, current_database();"
+```
+
+> **Su Mac con Homebrew non esiste l'utente `postgres`** e non c'è nessuna password: il superutente sei tu, con il tuo
+> nome utente di sistema. Le guide scritte per Windows ti faranno cercare una password che non esiste.
+
+La prova del nove, con il venv attivo e dalla cartella radice:
+
+```bash
+python -m scripts.init_db
+```
+
+Deve stampare:
+
+```
+Database: postgresql+psycopg://tuonome@localhost:5432/overseas
+  [!]  Nessuna tabella creata: app/models.py e' ancora vuoto.
+```
+
+**Questo non è un errore.** Significa che l'applicazione si è collegata a PostgreSQL e non ha trovato modelli: corretto,
+finché non fai la Fase 4. Se invece esce `connection refused`, il server non è avviato: `brew services list`.
+
+**L'utente dedicato dell'applicazione** — quello che serve per la sezione sicurezza della relazione — si crea in Fase 4,
+dopo che le tabelle esistono, perché i `GRANT` valgono solo sulle tabelle già create. Fino ad allora usa il tuo utente.
+
+---
+
+## 0.8 PyCharm
+
+### L'interprete
+
+**Settings → Project → Python Interpreter → Add Interpreter → Add Local Interpreter → Existing**
+
+Punta a `~/Desktop/Project-Overseas/.venv/bin/python`.
+
+Scegli **Existing** e non *New*: l'ambiente esiste già, crearne un altro fa solo confusione.
+
+Verifica in basso a destra che compaia l'interprete del progetto, poi **chiudi e riapri il terminale integrato** (⌥F12):
+il prompt deve cominciare con `(.venv)`. PyCharm attiva l'ambiente solo nei terminali aperti dopo aver impostato
+l'interprete.
+
+### La configurazione di avvio
+
+In alto a destra: **Edit Configurations → + → Flask server**
+
+- **Name** — `Flask`
+- **Python interpreter** — quello del progetto, con `.venv` nel percorso
+- **Target type** — `script`, e come percorso il `wsgi.py` del progetto
+- **Working directory** — la cartella radice del progetto. **Non lasciarlo vuoto:** altrimenti PyCharm parte da una
+  cartella qualsiasi e i percorsi relativi si comportano diversamente da quando lanci a mano.
+- **Environment variables** — scrivi `FLASK_DEBUG=1`
+- **Paths to ".env" files** — **lascialo vuoto.** Il `.env` lo carica già `config.py` con python-dotenv. Compilarlo
+  anche qui significa avere due meccanismi che fanno la stessa cosa, e prima o poi divergono.
+- **Flask env** — se c'è, ignoralo o svuotalo. È un residuo: la variabile `FLASK_ENV` è stata rimossa da Flask 2.3 in
+  poi e oggi non fa niente.
+
+`FLASK_DEBUG=1` serve a due cose: ricaricamento automatico quando salvi un file, e pagina di errore dettagliata nel
+browser invece di un laconico "Internal Server Error".
+
+### Impostazioni che conviene attivare subito
+
+- **Settings → Editor → General → On Save**: attiva "Remove trailing blank lines" e "Remove trailing spaces" (per tutti
+  i tipi di file). Toglie le differenze invisibili che sporcano i diff quando siete in tre a modificare gli stessi file.
+- **Settings → Tools → Actions on Save**: attiva "Reformat code" e "Optimize imports", impostandoli su **tutti i tipi di
+  file** e sull'intero file, non solo sulle righe modificate. Il codice resta uniforme fra tre persone senza
+  discussioni.
+
+> La cartella `.idea/` è esclusa da Git, quindi la configurazione di avvio **non si condivide**: ognuno dei tre se la
+> crea, sono due minuti.
+
+### Avvia
+
+Premi il pulsante di esecuzione. Nella console compare un indirizzo tipo `http://127.0.0.1:5000`. Aprilo: devi vedere la
+pagina di verifica con il riquadro **Database** verde e dialetto `postgresql`.
+
+---
+
+## 0.9 Il primo commit
+
+Solo dopo esserti assicurato che il `.gitignore` esista.
+
+```bash
+git add -A
+git status --short
+```
+
+Leggi l'elenco **prima** di confermare: non deve comparire niente che cominci con `.venv/`, `.idea/` o `.env`. Controllo
+esplicito:
+
+```bash
+git ls-files | grep -c "^\.venv/"     # deve stampare 0
+git check-ignore -v .env              # deve dire che è ignorato
+git check-ignore -v .env.example      # non deve stampare niente
+```
+
+Se il venv è già finito nell'indice, toglilo senza cancellare i file dal disco:
+
+```bash
+git rm -r --cached .venv .idea
+```
+
+Poi:
+
+```bash
+git commit -m "Setup dell'ambiente"
+git push
+```
+
+---
+
+## 0.10 Struttura delle cartelle
+
+Questa è la struttura definitiva. Non va riorganizzata più.
+
+```
+Project-Overseas/
+├── .env                     ← configurazione locale, MAI su GitHub
+├── .env.example             ← modello con valori fittizi, questo sì versionato
+├── .gitignore
+├── README.md                ← installazione, avvio e spiegazione delle cartelle
+├── requirements.txt         ← elenco delle dipendenze
+├── config.py                ← lettura della configurazione
+├── wsgi.py                  ← punto di ingresso dell'applicazione
+│
+├── app/
+│   ├── __init__.py          ← application factory: create_app()
+│   ├── extensions.py        ← istanze di SQLAlchemy e Flask-Login
+│   ├── enums.py             ← valori enumerati e transizioni di stato
+│   ├── models.py            ← modelli ORM: UNICA definizione dello schema
+│   ├── security.py          ← password, controllo di ruolo e di appartenenza
+│   ├── queries.py           ← interrogazioni analitiche, tutte insieme
+│   ├── documenti.py         ← caricamento e archiviazione dei file
+│   │
+│   ├── blueprints/
+│   │   ├── pubblico.py      ← home e smistamento per ruolo
+│   │   ├── auth.py          ← accesso e uscita
+│   │   ├── pratiche.py      ← dettaglio pratica, condiviso dai tre ruoli
+│   │   ├── studente.py      ← area studente
+│   │   ├── docente.py       ← area docente referente
+│   │   └── ufficio.py       ← area ufficio Overseas
+│   │
+│   ├── templates/
+│   │   ├── base.html        ← struttura comune, estesa da tutti
+│   │   ├── _frammenti.html  ← macro riutilizzabili
+│   │   ├── home.html
+│   │   ├── errore.html
+│   │   ├── auth/            ← login
+│   │   ├── pratiche/        ← dettaglio
+│   │   ├── studente/        ← elenco, nuova, esami, documenti
+│   │   ├── docente/         ← elenco, valutazioni, riconoscimento
+│   │   └── ufficio/         ← elenco, istituti, cruscotto
+│   │
+│   └── static/css/style.css
+│
+├── scripts/
+│   ├── __init__.py                   ← rende scripts/ un pacchetto (per -m)
+│   ├── init_db.py                    ← crea lo schema
+│   ├── schema_extra_postgres.sql     ← trigger, viste, indici, ruoli
+│   └── seed.py                       ← dati di prova
+│
+├── docs/
+│   ├── RELAZIONE.md                  ← scheletro della relazione
+│   ├── decisioni.md                  ← diario delle scelte + contributi
+│   ├── collaudo.md                   ← checklist di test
+│   ├── query_principali.sql          ← raccolta query per la relazione
+│   └── schema_er/                    ← diagrammi ER e schema logico
+│
+└── uploads/                 ← documenti caricati, esclusa dal versionamento
+```
+
+Tre criteri spiegano questa disposizione, e vanno riportati nella relazione:
+
+- **Un blueprint per area funzionale.** L'URL dice già chi può accedere: tutto ciò che sta sotto `/docente/` è per i docenti. Rende i permessi verificabili a colpo d'occhio.
+- **Il dettaglio della pratica ha un blueprint proprio**, perché è l'unica pagina che serve a tutti e tre i ruoli. Metterla sotto `/studente/` avrebbe costretto un docente a navigare in un URL che dice il contrario di quello che sta facendo.
+- **La logica di accesso ai dati sta fuori dalle route.** Le interrogazioni non banali stanno in `queries.py`, i controlli di autorizzazione in `security.py`. Le route si occupano solo di HTTP: leggono la richiesta, chiamano, restituiscono una risposta.
+
+---
+
+## 0.11 Il file delle dipendenze
+
+Si chiama `requirements.txt`, sta nella cartella radice e **si installa**, non si esegue:
+
+```bash
+pip install -r requirements.txt
+```
+
+Non è uno script: è un elenco che `pip` interpreta. È il modo standard, ed è quello che la docente si aspetta di trovare
+nel pacchetto di consegna, perché le permette di ricostruire l'ambiente con un comando solo.
+
+```
+Flask~=3.1.0                # framework web
+Flask-SQLAlchemy~=3.1.1     # integrazione SQLAlchemy <-> Flask
+Flask-Login~=0.6.3          # autenticazione basata su sessione
+SQLAlchemy~=2.0.36          # ORM e Core
+passlib~=1.7.4              # hashing delle password (pbkdf2_sha256)
+python-dotenv~=1.0.1        # lettura della configurazione dal file .env
+psycopg[binary]~=3.2.3      # driver PostgreSQL
+```
+
+Due precisazioni:
+
+- **L'operatore `~=` blocca il cambio di versione maggiore.** `Flask~=3.1.0` accetta la 3.1.4 ma non la 3.2. Serve a evitare che fra due settimane un aggiornamento cambi il comportamento di una libreria durante la registrazione del video.
+- **Aggiungere una dipendenza è un'operazione in due passi**: la si installa e la si scrive nel file. Se si dimentica il secondo passo, il progetto funziona sulla propria macchina e non su quella degli altri. È il classico "da me funziona".
+
+Esiste `pip freeze > requirements.txt`, che scrive l'elenco esatto di tutto l'installato. Sconsigliato: produce quaranta
+righe fra cui le dipendenze delle dipendenze, illeggibile per chi corregge. Meglio un file scritto a mano e commentato.
+
+---
+
+## 0.12 Gli script del progetto
+
+Nella cartella `scripts/` ci sono programmi che **lanci tu quando servono**. Non sono servizi, non girano in background,
+non si "attivano": partono, fanno il lavoro, stampano qualcosa e finiscono.
+
+```bash
+python -m scripts.init_db            # crea le tabelle mancanti
+python -m scripts.init_db --reset    # cancella tutto e ricrea da zero
+python -m scripts.seed               # inserisce i dati di prova
+```
+
+Due condizioni, sempre: **venv attivo** e **dalla cartella radice** del progetto.
+
+**Perché `-m scripts.init_db` e non `python scripts/init_db.py`.** Il flag `-m` dice a Python "esegui questo modulo come
+programma" e mette la cartella corrente fra quelle da cui si può importare. Serve perché lo script deve fare
+`from app import create_app`: senza `-m`, Python cerca il pacchetto `app` solo dentro `scripts/`, non lo trova, e
+ottieni `ModuleNotFoundError: No module named 'app'`.
+
+Il punto separa le cartelle, come negli import: `scripts.init_db` è il file `scripts/init_db.py`. Ed è il motivo per cui
+in `scripts/` c'è un `__init__.py` vuoto: senza, quella cartella non sarebbe un pacchetto importabile. Attenzione:
+**niente `.py` alla fine**.
+
+`init_db` si rilancia ogni volta che cambi `app/models.py`. `seed` ogni volta che vuoi ripartire da dati puliti — prima
+di un collaudo, e prima di registrare il video. Il giro completo per azzerare tutto:
+
+```bash
+python -m scripts.init_db --reset && python -m scripts.seed
+```
+
+---
+
+## 0.13 Convenzioni da fissare per iscritto
 
 - **Una lingua sola.** Italiano oppure inglese per nomi di tabelle, colonne, variabili, funzioni e commenti. Mescolarli è l'errore più visibile in fase di correzione. In questo progetto: italiano ovunque.
 - **Tabelle al singolare** (`pratica`, non `pratiche`), colonne in minuscolo con underscore.
 - **Chiavi primarie surrogate** intere di nome `id`; chiavi esterne di nome `<tabella>_id`.
-- **Stati e valori enumerati** in minuscolo con underscore, definiti una volta sola in `enums.py` e mai scritti a mano altrove.
+- **Stati e valori enumerati** in minuscolo con underscore, definiti una volta sola in `app/enums.py` e mai scritti a
+  mano altrove.
 - **Riga massima 100 caratteri.**
 - **Commenti che spiegano il perché**, non il cosa. `# incrementa il contatore` è rumore; `# 404 e non 403: un 403 confermerebbe che la pratica esiste` è informazione.
 
-## 0.9 Flusso di lavoro Git nel gruppo
+---
+
+## 0.14 Flusso di lavoro Git nel gruppo
 
 Con tre persone sullo stesso repository serve una regola sola, ma rispettata.
 
-- **Nessuno lavora direttamente su `main`.** Ogni attività ha il suo branch: `feature/mapping-esami`, `feature/upload-documenti`.
-- In PyCharm: **Git → Branches → New Branch** in basso a destra.
+- **Nessuno lavora direttamente su `main`.** Ogni attività ha il suo branch: `feature/mapping-esami`,
+  `feature/upload-documenti`. In PyCharm: **Git → Branches → New Branch**, in basso a destra.
 - **Commit piccoli e frequenti**, con un messaggio che dica cosa cambia e perché. `fix` non è un messaggio.
 - **Prima di iniziare a lavorare, sempre `pull`.** Prima di aprire una pull request, `pull` di nuovo. La maggior parte dei conflitti nasce dal saltare questo passaggio.
-- **Merge su `main` tramite pull request**, con almeno un altro componente che dà un'occhiata. Serve anche a far sapere agli altri cosa sta succedendo nel progetto.
+- **Merge su `main` tramite pull request**, con almeno un altro componente che dà un'occhiata. Serve anche a far sapere
+  agli altri cosa sta succedendo.
 - **Dividersi per file, non per riga.** Se due persone devono toccare `models.py` nello stesso momento, meglio che una aspetti dieci minuti: risolvere un conflitto su un file di modelli costa molto più tempo.
+- **Una persona è responsabile dell'integrazione:** ogni sera fa il merge e verifica che `main` parta. Non è un capo, è
+  un compito.
 
-## 0.10 Tracciamento del lavoro
+---
 
-- Aprire un elenco condiviso di attività con stato. Va bene anche la scheda Projects di GitHub.
-- Tenere un **diario delle decisioni progettuali**: per ogni scelta non banale, cosa si è deciso e perché. È la materia prima della sezione "Principali scelte progettuali" della relazione, e ricostruirlo a memoria alla fine costa molto di più che scriverlo strada facendo.
-- Tenere l'elenco di **chi ha fatto cosa**: l'appendice sui contributi è richiesta esplicitamente.
+## 0.15 Tracciamento del lavoro
 
-**Criterio di chiusura della Fase 0:** tutti e tre clonano il repository, creano l'ambiente virtuale, installano le dipendenze e avviano l'applicazione vuota da PyCharm senza intoppi. Le convenzioni sono scritte in un file dentro il repository.
+- Aprire un elenco condiviso di attività con stato. Va bene la scheda Projects di GitHub.
+- Tenere **`docs/decisioni.md`** aggiornato: per ogni scelta non banale, cosa si è deciso e perché, in tre righe. È la
+  materia prima della sezione "Principali scelte progettuali" della relazione, e ricostruirlo a memoria alla fine costa
+  molto di più che scriverlo strada facendo.
+- Tenere il **registro dei contributi** in fondo allo stesso file: l'appendice su chi ha fatto cosa è richiesta
+  esplicitamente dalla traccia.
 
+---
+
+## 0.16 Diagnosi
+
+Gli errori che si incontrano davvero, con la causa.
+
+**1. PyCharm scrive `[invalid]` accanto all'interprete.** Il venv è rotto: hai rinominato o spostato la cartella del
+progetto, oppure il Python di base non c'è più. Un venv non è riparabile e non serve ripararlo, perché tutto è
+ricostruibile da `requirements.txt`:
+
+```bash
+rm -rf .venv
+/opt/homebrew/bin/python3.13 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Poi in PyCharm ripunta l'interprete con **Existing**. L'elenco dei pacchetti che PyCharm continua a mostrare anche
+quando dice `[invalid]` è solo cache: non significa che funzioni.
+
+**2. Il prompt non comincia con `(.venv)`.** Nove volte su dieci il terminale era già aperto prima che impostassi
+l'interprete: chiudi la scheda e riaprila. Altrimenti controlla che in *Settings → Tools → Terminal* sia spuntato
+*Activate virtualenv*. In emergenza funziona sempre `source .venv/bin/activate`.
+
+**3. `connection refused` verso il database.** Il server non gira: `brew services list`, poi
+`brew services start postgresql@NN`. Capita tipicamente dopo un aggiornamento di Homebrew, che ferma i servizi.
+
+**4. La porta 5432 è occupata ma non hai avviato niente.** Hai due PostgreSQL installati, quasi sempre Postgres.app più
+Homebrew. Disinstalla Postgres.app come descritto in 0.3.
+
+**5. `.gitignore` e `.env.example` non ci sono.** L'estrazione dello ZIP dal Finder ha perso i file nascosti. Ricreali a
+mano con il contenuto della 0.6, e ricrea il `.gitignore` **prima di qualsiasi commit**. Nel Finder i file che iniziano
+con il punto sono nascosti: ⌘⇧. li mostra e li nasconde; da terminale si vedono con `ls -la`, e in PyCharm sono sempre
+visibili.
+
+**6. `zsh: command not found: init_db`.** Non è un comando di sistema: va lanciato come modulo,
+`python -m scripts.init_db`.
+
+**7. `ModuleNotFoundError: No module named 'app'`.** Sei nella cartella sbagliata, oppure hai lanciato
+`python scripts/init_db.py` invece di `python -m scripts.init_db`.
+
+**8. `RuntimeError: Working outside of application context`.** Stai usando `db.session` fuori da una richiesta HTTP.
+Negli script serve il blocco `with app.app_context():`.
+
+---
+
+**Criterio di chiusura della Fase 0:** tutti e tre vedono la pagina di verifica con il riquadro **Database** verde e
+dialetto `postgresql`, il repository è condiviso e il primo commit è passato senza portarsi dietro
+`.venv`, `.idea` o `.env`, e le convenzioni sono scritte in un file dentro il repository.
 ---
 
 # FASE 1 — Analisi della traccia e raccolta dei requisiti
