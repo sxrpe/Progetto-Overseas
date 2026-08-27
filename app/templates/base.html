@@ -28,10 +28,20 @@
 </head>
 <body class="d-flex flex-column min-vh-100 bg-body-tertiary">
 
-{# ---------- BARRA DI NAVIGAZIONE ------------------------------------- #}
-{# Il menu cambia in base al ruolo dell'utente collegato. Nascondere una   #}
-{# voce NON e' un controllo di sicurezza: serve solo a non confondere      #}
-{# l'utente. Il controllo vero sta sempre nella route, lato server.        #}
+{# ---------- BARRA DI NAVIGAZIONE -------------------------------------- #}
+{#
+  Il menu cambia in base al ruolo dell'utente collegato.
+
+  ATTENZIONE, E' UN PUNTO DA CAPIRE BENE: nascondere una voce NON e' un
+  controllo di sicurezza. Chiunque puo' digitare l'URL a mano nella barra
+  degli indirizzi. Il controllo vero sta sempre nella rotta, lato server,
+  con @login_required e @ruolo_richiesto. Qui si evita solo di mostrare
+  all'utente comandi che non lo riguardano.
+
+  current_user esiste in tutti i template senza doverlo passare: lo mette a
+  disposizione Flask-Login. Se non c'e' nessuno collegato e' un oggetto
+  "anonimo", per cui is_authenticated vale False.
+#}
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container">
     <a class="navbar-brand fw-semibold" href="{{ url_for('pubblico.home') }}">
@@ -47,14 +57,26 @@
     <div class="collapse navbar-collapse" id="menu">
       <ul class="navbar-nav me-auto">
         {% if current_user.is_authenticated %}
-          {# FASE 6 — sostituire con le voci vere, in base a current_user.ruolo
-          {% if current_user.ruolo.value == 'studente' %}
+          {#
+            Le voci per ruolo si accendono man mano che le rotte esistono.
+            Scommentare una riga PRIMA che la rotta esista fa fallire
+            url_for() con un BuildError, e la pagina non si apre piu'.
+
+          {% if current_user.e_studente %}
             <li class="nav-item">
-              <a class="nav-link" href="{{ url_for('studente.elenco_pratiche') }}">
+              <a class="nav-link" href="{{ url_for('studente.elenco') }}">
                 Le mie pratiche</a>
             </li>
-          {% elif current_user.ruolo.value == 'docente' %}
-            ...
+          {% elif current_user.e_docente %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('docente.elenco') }}">
+                Pratiche di cui sono referente</a>
+            </li>
+          {% elif current_user.e_ufficio %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('ufficio.cruscotto') }}">
+                Cruscotto</a>
+            </li>
           {% endif %}
           #}
         {% endif %}
@@ -62,18 +84,20 @@
 
       <ul class="navbar-nav">
         {% if current_user.is_authenticated %}
-          <li class="nav-item">
-            <span class="navbar-text me-3">{{ current_user.email }}</span>
+          <li class="nav-item d-flex align-items-center me-3">
+            <span class="navbar-text">
+              {{ current_user.nome_completo }}
+              <span class="badge text-bg-secondary ms-1">
+                {{ current_user.ruolo | lower }}
+              </span>
+            </span>
           </li>
-          {# FASE 6 — scommentare quando esiste la route auth.logout.
-             Finche' la route non esiste, url_for() solleverebbe un errore.
           <li class="nav-item">
             <a class="nav-link" href="{{ url_for('auth.logout') }}">Esci</a>
           </li>
-          #}
         {% else %}
           <li class="nav-item">
-            <span class="navbar-text small text-white-50">non autenticato</span>
+            <a class="nav-link" href="{{ url_for('auth.login') }}">Accedi</a>
           </li>
         {% endif %}
       </ul>
@@ -84,16 +108,26 @@
 {# ---------- CONTENUTO ------------------------------------------------- #}
 <main class="container my-4 flex-grow-1" style="max-width: 62rem;">
 
-  {# Messaggi flash: il canale unico per parlare all'utente.
-     Nel codice Python:  flash("Pratica creata.", "success")
-     Le categorie usate nel progetto sono tre: success, warning, error. #}
+  {#
+    MESSAGGI FLASH: il canale unico per parlare all'utente.
+
+    Nel codice Python:   flash("Pratica creata.", "success")
+    La categoria (secondo argomento) decide il colore. Le categorie usate nel
+    progetto sono quattro, e corrispondono ai nomi Bootstrap:
+        success   operazione riuscita
+        danger    operazione rifiutata
+        warning   avviso, serve attenzione
+        info      informazione neutra
+
+    Un flash sopravvive a un redirect: e' il motivo per cui dopo una POST si
+    fa sempre redirect invece di rispondere con l'HTML. Cosi' se l'utente
+    ricarica la pagina non rispedisce il form una seconda volta.
+  #}
   {% with messaggi = get_flashed_messages(with_categories=true) %}
     {% for categoria, testo in messaggi %}
-      <div class="alert alert-dismissible fade show
-                  {% if categoria == 'error' %}alert-danger
-                  {% elif categoria == 'warning' %}alert-warning
-                  {% else %}alert-success{% endif %}"
-           role="alert">
+      <div class="alert alert-{{ categoria if categoria in
+                  ['success', 'danger', 'warning', 'info'] else 'info' }}
+                  alert-dismissible fade show" role="alert">
         {{ testo }}
         <button type="button" class="btn-close" data-bs-dismiss="alert"
                 aria-label="Chiudi"></button>

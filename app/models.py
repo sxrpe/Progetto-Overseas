@@ -1,21 +1,3 @@
-"""
-UserMixin é usato come classe base da cui ereditare la classe Utente, perche consente di ereditare i metodi base di login 
-che implementa flask-login nel suo modulo
-"""
-"""
-Notazioni di tipo : python ignora le notazioni ma sqlalchemy le usa per creare le colonne della tabella : 
-str | None            # stringa oppure niente. Come std::optional<string>
-list[Pratica]         # lista di Pratica. Come std::vector<Pratica>
-dict[str, int]        # dizionario stringa -> intero. Come std::map
-tuple[int, str]       # tupla di due elementi
-
-
-Da Mapped[int] deduce INTEGER, da Mapped[dt.date] deduce DATE. 
-Per questo in molte righe non ho scritto il tipo dentro mapped_column(): lo deduce da solo. 
-Dove l'ho scritto — sa.String(120) — è perché serviva la lunghezza, che dall'annotazione non si ricava.
-"""
-
-
 """Lo schema logico tradotto in classi SQLAlchemy.
 
 COME SI LEGGE QUESTO FILE
@@ -35,8 +17,6 @@ COME SI LEGGE QUESTO FILE
 
       4) un vincolo, dentro __table_args__ in fondo alla classe
              sa.CheckConstraint("crediti > 0", name="ck_crediti_positivi")
-
-    Se riconosci queste quattro forme, il file lo leggi tutto.
 
 COME SI SCRIVONO I VINCOLI
     Le stringhe dentro CheckConstraint sono SQL puro: SQLAlchemy le copia nel
@@ -64,6 +44,13 @@ QUELLO CHE QUI NON C'E'
     scripts/schema_extra_postgres.sql, eseguito da init_db subito dopo la
     creazione delle tabelle. Dove un vincolo vive li', il commento della
     classe lo dice.
+
+
+
+
+
+    UserMixin é usato come classe base da cui ereditare la classe Utente, perche consente di ereditare i metodi base di login
+che implementa flask-login nel suo modulo
 """
 
 from __future__ import annotations

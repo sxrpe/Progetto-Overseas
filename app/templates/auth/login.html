@@ -1,50 +1,92 @@
 {#
-  PAGINA DI ACCESSO  ->  da scrivere in FASE 6.
+  PAGINA DI ACCESSO.
 
-  COSA DEVE CONTENERE
-    - un form con method="post", due campi (email, password) e un pulsante
-    - il campo email ripopolato dopo un errore: non far riscrivere tutto
-    - nessun messaggio che riveli se l'email esiste: l'errore e' generico
-      e arriva come messaggio flash dalla route
+  COME FUNZIONA UN TEMPLATE JINJA2
+      E' un file HTML normale con dentro tre tipi di parentesi:
+          graffe doppie      stampano un valore
+          graffa-percento    eseguono un'istruzione (if, for, extends, block)
+          graffa-cancelletto sono commenti, e non finiscono nell'HTML
 
-  COMPONENTI BOOTSTRAP UTILI
-    card, form-label, form-control, btn btn-dark, mb-3
+      ATTENZIONE, e' un errore che si fa una volta sola ma costa mezz'ora:
+      i commenti Jinja NON si annidano. Il primo cancelletto-graffa che
+      l'interprete incontra chiude il commento, anche se era dentro una
+      frase. Da li' in poi il testo viene letto come codice. Per questo qui
+      sopra i simboli sono scritti a parole invece che per esteso.
 
-  VARIABILI CHE LA ROUTE DEVE PASSARE
-    email  -> il valore gia' digitato, stringa vuota la prima volta
+      Il template NON esegue Python: puo' solo leggere le variabili che la
+      rotta gli ha passato con render_template(...). E' voluto, e serve a
+      tenere la logica nelle rotte invece che sparsa nelle pagine.
+
+  La riga qui sotto eredita l'intelaiatura comune da base.html: la struttura
+  HTML, la barra di navigazione, i messaggi flash. Qui si riempie solo il
+  buco chiamato "contenuto".
 #}
-
 {% extends "base.html" %}
-{% block titolo %}Accesso{% endblock %}
+
+{% block titolo %}Accedi{% endblock %}
 
 {% block contenuto %}
-  <div class="row justify-content-center">
-    <div class="col-md-6 col-lg-5">
-      <div class="card">
-        <div class="card-body">
-          <h1 class="h4 mb-3">Accesso</h1>
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
 
-          <div class="alert alert-secondary small mb-0">
-            Da implementare in Fase 6.
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+
+        <h1 class="h4 mb-1">Accedi</h1>
+        <p class="text-body-secondary small mb-4">
+          Piattaforma per la gestione delle mobilità Overseas
+        </p>
+
+        {#
+          method="post" -> i dati viaggiano nel corpo della richiesta e non
+          nell'URL. Fondamentale per una password: gli URL finiscono nella
+          cronologia del browser e nei log del server.
+
+          action non c'e': il form si invia alla stessa pagina, cioe' alla
+          stessa funzione, che sa gia' distinguere GET da POST.
+        #}
+        <form method="post" novalidate>
+
+          <div class="mb-3">
+            <label for="email" class="form-label">Email</label>
+            {#
+              L'attributo name="email" e' quello che conta: e' la chiave con
+              cui la rotta legge il valore, con request.form.get("email").
+              Se cambi il name, devi cambiare anche la rotta.
+
+              value="{{ email }}" ripropone quello che l'utente aveva scritto
+              dopo un tentativo fallito, cosi' non deve ridigitarlo. La
+              password no: si riscrive sempre.
+            #}
+            <input type="email" class="form-control" id="email" name="email"
+                   value="{{ email }}" required autofocus
+                   autocomplete="username">
           </div>
 
-          {#
-          <form method="post">
-            <div class="mb-3">
-              <label class="form-label" for="email">Email</label>
-              <input class="form-control" type="email" id="email" name="email"
-                     value="{{ email }}" required autofocus>
-            </div>
-            <div class="mb-3">
-              <label class="form-label" for="password">Password</label>
-              <input class="form-control" type="password" id="password"
-                     name="password" required>
-            </div>
-            <button class="btn btn-dark w-100" type="submit">Accedi</button>
-          </form>
-          #}
-        </div>
+          <div class="mb-4">
+            <label for="password" class="form-label">Password</label>
+            <input type="password" class="form-control" id="password"
+                   name="password" required autocomplete="current-password">
+          </div>
+
+          <button type="submit" class="btn btn-primary w-100">Accedi</button>
+        </form>
+
       </div>
     </div>
+
+    {#
+      Promemoria per la demo: queste credenziali arrivano da scripts/seed.py.
+      Il blocco va tolto prima della consegna.
+    #}
+    <div class="alert alert-light border mt-3 small mb-0">
+      <div class="fw-semibold mb-1">Utenti di prova</div>
+      <div class="font-monospace">
+        studente@stud.unive.it · docente@unive.it · ufficio@unive.it<br>
+        password: <span class="fw-semibold">overseas</span>
+      </div>
+    </div>
+
   </div>
+</div>
 {% endblock %}

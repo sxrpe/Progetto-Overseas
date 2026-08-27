@@ -3,80 +3,93 @@
 
   Una macro e' una funzione che produce HTML. Serve per gli elementi che
   compaiono in piu' pagine: se l'etichetta di stato appare in cinque template
-  e la definisci cinque volte, cambiarla significa cambiarla cinque volte.
+  e la scrivi cinque volte, cambiarla significa cambiarla cinque volte, e
+  dimenticarne una.
 
   COME SI USA, da un altro template:
-      {% from "_frammenti.html" import stato_pratica, riga_esame %}
+      {% from "_frammenti.html" import stato_pratica %}
       {{ stato_pratica(pratica.stato) }}
 
-  QUANDO LO RIEMPI
-      Fase 11, man mano che ti accorgi di star copiando lo stesso pezzo di
-      HTML per la seconda volta. Non prima: creare astrazioni per elementi
-      usati una sola volta e' tempo perso.
+  DA DOVE ARRIVANO StatoPratica, EsitoDocumento e simili
+      Sono registrate come variabili globali di Jinja in create_app():
+          app.jinja_env.globals.update(StatoPratica=StatoPratica, ...)
+      Per questo si possono usare in qualunque template senza passarle a
+      render_template() ogni volta.
+
+  ATTENZIONE alle macro: NON vedono le variabili globali del template che le
+  chiama, ma quelle registrate in jinja_env.globals si', perche' sono
+  dell'ambiente e non del singolo template.
 #}
 
 
 {# --------------------------------------------------------------------------
-   ETICHETTA DI STATO — questa e' gia' pronta e funzionante.
-   Mostra lo stato della pratica con un colore coerente in tutta
-   l'applicazione. Averla sempre uguale e sempre nella stessa posizione e' il
-   modo piu' semplice per rendere leggibile l'app durante la demo.
+   ETICHETTA DI STATO DELLA PRATICA.
+
+   Il colore e il testo leggibile arrivano dai dizionari in app/enums.py:
+   cosi' sono definiti una volta sola e valgono ovunque, template compresi.
    -------------------------------------------------------------------------- #}
 {% macro stato_pratica(stato) %}
-  {% set colori = {
-       'creata':                  'secondary',
-       'attesa_approvazione_la':  'warning',
-       'pre_partenza_completata': 'info',
-       'mobilita_in_corso':       'primary',
-       'in_riconoscimento_esami': 'warning',
-       'chiusa':                  'success'
-     } %}
-  <span class="badge stato text-bg-{{ colori.get(stato.value, 'secondary') }}">
-    {{ stato.value | replace('_', ' ') }}
+  <span class="badge text-bg-{{ StatoPratica.COLORI.get(stato, 'secondary') }}">
+    {{ StatoPratica.ETICHETTE.get(stato, stato) }}
   </span>
 {% endmacro %}
 
 
 {# --------------------------------------------------------------------------
-   ESITO DI UNA DECISIONE — approvato / rifiutato / in attesa.
+   ESITO DI UN LEARNING AGREEMENT: in attesa / approvato / rifiutato.
    -------------------------------------------------------------------------- #}
-{% macro etichetta_esito(esito) %}
-  {% set colori = {
-       'in_attesa':  'secondary',
-       'approvato':  'success',
-       'rifiutato':  'danger'
-     } %}
-  <span class="badge stato text-bg-{{ colori.get(esito.value, 'secondary') }}">
-    {{ esito.value | replace('_', ' ') }}
+{% macro esito_documento(esito) %}
+  <span class="badge text-bg-{{ EsitoDocumento.COLORI.get(esito, 'secondary') }}">
+    {{ EsitoDocumento.ETICHETTE.get(esito, esito) }}
   </span>
 {% endmacro %}
 
 
 {# --------------------------------------------------------------------------
-   CAMPO DI UN FORM con etichetta ed errore accanto.
-   Da completare in Fase 11, quando decidi come passi gli errori al template.
-
-   {% macro campo(nome, etichetta, valore='', tipo='text', errore=None, obbligatorio=True) %}
-     <div class="mb-3">
-       <label class="form-label" for="{{ nome }}">{{ etichetta }}</label>
-       <input class="form-control {% if errore %}is-invalid{% endif %}"
-              type="{{ tipo }}" id="{{ nome }}" name="{{ nome }}"
-              value="{{ valore }}" {% if obbligatorio %}required{% endif %}>
-       {% if errore %}<div class="invalid-feedback">{{ errore }}</div>{% endif %}
-     </div>
-   {% endmacro %}
+   ESITO DEL RICONOSCIMENTO DI UN ESAME.
    -------------------------------------------------------------------------- #}
+{% macro esito_riconoscimento(esito) %}
+  <span class="badge text-bg-{{ EsitoRiconoscimento.COLORI.get(esito, 'secondary') }}">
+    {{ EsitoRiconoscimento.ETICHETTE.get(esito, esito) }}
+  </span>
+{% endmacro %}
 
 
 {# --------------------------------------------------------------------------
-   SCHEDA DI UNA PRATICA in un elenco.
-   Da scrivere in Fase 11. Attenzione: la scheda e' la stessa per i tre ruoli,
-   ma i pulsanti no. Passa i comandi come parametro invece di mettere degli
-   "if ruolo" dentro la macro.
+   PERIODO DELLA MOBILITA', in forma leggibile.
    -------------------------------------------------------------------------- #}
+{% macro periodo(valore) %}
+  {{ Periodo.ETICHETTE.get(valore, valore) }}
+{% endmacro %}
 
 
 {# --------------------------------------------------------------------------
-   RIGA DEL MAPPING ESAMI: esame estero -> esame di Ca' Foscari.
-   Da scrivere in Fase 11.
+   DATA in formato italiano, oppure un trattino se non c'e'.
+
+   Serve piu' spesso di quanto sembri: meta' delle date dello schema sono
+   nullabili, e senza questo controllo il template stamperebbe "None".
    -------------------------------------------------------------------------- #}
+{% macro data(valore) %}
+  {% if valore %}{{ valore.strftime('%d/%m/%Y') }}{% else %}<span
+    class="text-body-secondary">—</span>{% endif %}
+{% endmacro %}
+
+
+{# --------------------------------------------------------------------------
+   CAMPO DI UN FORM con etichetta ed eventuale messaggio d'errore.
+
+   Da usare quando comincerete a fare form con validazione. Per ora i due
+   form esistenti (login) sono scritti a mano, ed e' giusto cosi': creare
+   un'astrazione per un elemento usato una volta sola e' tempo perso.
+   -------------------------------------------------------------------------- #}
+{% macro campo(nome, etichetta, valore='', tipo='text', errore=None,
+               obbligatorio=True, aiuto=None) %}
+  <div class="mb-3">
+    <label class="form-label" for="{{ nome }}">{{ etichetta }}</label>
+    <input class="form-control {% if errore %}is-invalid{% endif %}"
+           type="{{ tipo }}" id="{{ nome }}" name="{{ nome }}"
+           value="{{ valore }}" {% if obbligatorio %}required{% endif %}>
+    {% if aiuto %}<div class="form-text">{{ aiuto }}</div>{% endif %}
+    {% if errore %}<div class="invalid-feedback">{{ errore }}</div>{% endif %}
+  </div>
+{% endmacro %}
