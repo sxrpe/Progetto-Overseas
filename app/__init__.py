@@ -66,8 +66,9 @@ def create_app(nome_config: str = "dev") -> Flask:
     # cambia ruolo, la modifica ha effetto alla richiesta successiva e non
     # alla scadenza del cookie.
     #
-    # Deve esistere fin da subito: appena un template nomina current_user,
-    # Flask-Login la cerca, e senza di essa solleva un'eccezione.
+    # Flask cattura l'id interno al cookie firmato da una chiave privata che gestisce lui
+    # passa alla funzione carica utente la stringa del cookie e va a catturare nel db la sessione relativa all'utente connesso (ad ogni richiesta
+    # che richieda quel gener edi informazioni = cioe tutte)
     # ------------------------------------------------------------------
     @login_manager.user_loader
     def carica_utente(id_utente: str):
@@ -81,8 +82,6 @@ def create_app(nome_config: str = "dev") -> Flask:
     # richiesta, e i trigger la rileggono con current_setting() per
     # verificare il ruolo di chi cambia stato e per riempire lo storico.
     #
-    # SET LOCAL significa "solo per questa transazione": non sporca le
-    # richieste degli altri utenti.
     # ------------------------------------------------------------------
     @app.before_request
     def dichiara_utente_al_database():

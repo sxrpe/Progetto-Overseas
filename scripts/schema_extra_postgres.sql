@@ -21,14 +21,17 @@
 --
 --  DA CHI VIENE COMPIUTA L'AZIONE
 --      PostgreSQL non sa chi e' l'utente applicativo: la connessione e'
---      sempre la stessa. L'applicazione lo comunica all'inizio della
---      transazione con
---          SET LOCAL app.utente_id = '7';
+--      sempre la stessa per tutti. L'applicazione glielo comunica all'inizio
+--      di ogni richiesta con
+--          SELECT set_config('app.utente_id', '7', true);
 --      e i trigger lo rileggono con current_setting('app.utente_id', true).
+--      (Non si puo' usare SET LOCAL: e' un comando di configurazione e non
+--      accetta parametri, quindi non si potrebbe passare l'id in modo sicuro.)
 --      Il secondo parametro true significa "non fallire se non e' impostato":
---      in quel caso il controllo di ruolo viene saltato e lo storico registra
---      un utente nullo. Cosi' gli script di popolamento funzionano senza
---      dover fingere un'identita'.
+--      in quel caso il controllo di ruolo viene semplicemente saltato. Cosi'
+--      gli script di popolamento e le query lanciate a mano funzionano senza
+--      dover fingere un'identita', mentre i vincoli sui DATI continuano a
+--      valere per tutti.
 -- ===========================================================================
 
 
@@ -340,42 +343,7 @@ CREATE TRIGGER trg_transizione_stato
 
 
 -- ===========================================================================
---  TRIGGER 4 - REGISTRAZIONE DELLO STORICO
--- ===========================================================================
---  L'unico trigger che scrive invece di validare.
---
---  Sta nel database e non nell'applicazione perche' cosi' la traccia esiste
---  anche per le modifiche fatte da uno script o a mano sul DBMS. Un registro
---  che si puo' aggirare non e' un registro.
---
---  E' AFTER e non BEFORE: si registra un fatto avvenuto, non uno che potrebbe
---  ancora essere rifiutato da un altro trigger.
--- ---------------------------------------------------------------------------
-
-CREATE OR REPLACE FUNCTION fn_registra_storico()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO storico_stato (pratica_id, stato_da, stato_a, utente_id)
-        VALUES (NEW.id, NULL, NEW.stato, app_utente_corrente());
-
-    ELSIF NEW.stato <> OLD.stato THEN
-        INSERT INTO storico_stato (pratica_id, stato_da, stato_a, utente_id)
-        VALUES (NEW.id, OLD.stato, NEW.stato, app_utente_corrente());
-    END IF;
-
-    RETURN NULL;   -- in un trigger AFTER il valore di ritorno viene ignorato
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_registra_storico ON pratica;
-CREATE TRIGGER trg_registra_storico
-    AFTER INSERT OR UPDATE ON pratica
-    FOR EACH ROW EXECUTE FUNCTION fn_registra_storico();
-
-
--- ===========================================================================
---  TRIGGER 5 - QUANDO SI PUO' CREARE UNA NUOVA VERSIONE DEL PIANO
+--  TRIGGER 4 - QUANDO SI PUO' CREARE UNA NUOVA VERSIONE DEL PIANO
 -- ===========================================================================
 --  Ammesso in APERTA (prima stesura), in ATTESA_APPROVAZIONE_LA (correzione
 --  dopo un rifiuto) e in MOBILITA_IN_CORSO (modifica in corso d'opera,
@@ -412,7 +380,7 @@ CREATE TRIGGER trg_la_creabile
 
 
 -- ===========================================================================
---  TRIGGER 6 - IL CONTENUTO DI UNA VERSIONE DECISA E' CONGELATO
+--  TRIGGER 5 - IL CONTENUTO DI UNA VERSIONE DECISA E' CONGELATO
 -- ===========================================================================
 --  Corsi esterni ed equivalenze si possono toccare solo finche' la versione
 --  a cui appartengono e' IN_ATTESA. Una volta approvata o rifiutata, quella
@@ -470,7 +438,7 @@ CREATE TRIGGER trg_equivalenza_modificabile
 
 
 -- ===========================================================================
---  TRIGGER 7 - REGISTRAZIONE E RICONOSCIMENTO DEGLI ESAMI
+--  TRIGGER 6 - REGISTRAZIONE E RICONOSCIMENTO DEGLI ESAMI
 -- ===========================================================================
 --  Due condizioni, entrambe fuori portata per un CHECK perche' attraversano
 --  tre tabelle.
@@ -618,25 +586,3 @@ SELECT sr.pratica_id,
  WHERE sr.stato = 'IN_RICONOSCIMENTO_ESAMI'
    AND sr.esami_da_valutare = 0
    AND EXISTS (SELECT 1 FROM transcript t WHERE t.pratica_id = sr.pratica_id);
-
-
--- ---------------------------------------------------------------------------
---  Pratiche ferme da piu' tempo in uno stato intermedio.
---
---  E' la query che ha giustificato l'introduzione dello storico: senza,
---  bisognerebbe ricostruire l'informazione dalle singole date sparse fra le
---  relazioni, e per gli stati che non hanno una data dedicata sarebbe
---  semplicemente impossibile.
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE VIEW v_pratiche_ferme AS
-SELECT p.id                AS pratica_id,
-       p.codice_pratica,
-       p.stato,
-       u.nome || ' ' || u.cognome           AS studente,
-       max(s.quando)                        AS in_questo_stato_dal,
-       (CURRENT_DATE - max(s.quando)::date) AS giorni_fermi
-  FROM pratica p
-  JOIN utente u        ON u.id = p.studente_id
-  JOIN storico_stato s ON s.pratica_id = p.id AND s.stato_a = p.stato
- WHERE p.stato <> 'CHIUSA'
- GROUP BY p.id, p.codice_pratica, p.stato, u.nome, u.cognome;

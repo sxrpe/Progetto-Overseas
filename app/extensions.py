@@ -41,6 +41,6 @@ db = SQLAlchemy(model_class=Base)
 login_manager = LoginManager()
 
 # Dove mandare chi tenta di aprire una pagina protetta senza essere entrato.
-login_manager.login_view = "auth.login"
+login_manager.login_view = "auth.login"   # uguale a url_for('auth.login'): nome del blueprint, punto, nome della funzione.
 login_manager.login_message = "Devi accedere per visualizzare questa pagina."
 login_manager.login_message_category = "warning"

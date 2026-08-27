@@ -18,6 +18,8 @@ COME SI LEGGE QUESTO FILE
       4) un vincolo, dentro __table_args__ in fondo alla classe
              sa.CheckConstraint("crediti > 0", name="ck_crediti_positivi")
 
+    Se riconosci queste quattro forme, il file lo leggi tutto.
+
 COME SI SCRIVONO I VINCOLI
     Le stringhe dentro CheckConstraint sono SQL puro: SQLAlchemy le copia nel
     CREATE TABLE senza interpretarle. Sono scritte per esteso, cosi' quello
@@ -44,13 +46,6 @@ QUELLO CHE QUI NON C'E'
     scripts/schema_extra_postgres.sql, eseguito da init_db subito dopo la
     creazione delle tabelle. Dove un vincolo vive li', il commento della
     classe lo dice.
-
-
-
-
-
-    UserMixin é usato come classe base da cui ereditare la classe Utente, perche consente di ereditare i metodi base di login
-che implementa flask-login nel suo modulo
 """
 
 from __future__ import annotations
@@ -303,7 +298,6 @@ class Pratica(db.Model):
                                 essere ammessa, e le precondizioni sui dati
                                 soddisfatte (serve OLD, e conta righe altrove)
         trg_pratica_immutabile  una pratica chiusa non si modifica piu'
-        trg_registra_storico    ogni transizione finisce in storico_stato
     """
 
     __tablename__ = "pratica"
@@ -383,11 +377,6 @@ class Pratica(db.Model):
     )
     transcript: Mapped[Transcript | None] = relationship(
         back_populates="pratica", cascade="all, delete-orphan", uselist=False
-    )
-    storico: Mapped[list[StoricoStato]] = relationship(
-        back_populates="pratica",
-        cascade="all, delete-orphan",
-        order_by="StoricoStato.quando",
     )
 
     __table_args__ = (
@@ -887,9 +876,9 @@ class Esame(db.Model):
 
 
 # ===========================================================================
-#  STRUTTURE DI SUPPORTO
-#  Non appartengono al dominio applicativo: sono al servizio dei vincoli e
-#  della tracciabilita'. Nel diagramma concettuale non compaiono.
+#  STRUTTURA DI SUPPORTO
+#  Non appartiene al dominio applicativo: e' al servizio del trigger che
+#  valida i cambi di stato. Nel diagramma concettuale non compare.
 # ===========================================================================
 
 class TransizioneAmmessa(db.Model):
@@ -924,43 +913,3 @@ class TransizioneAmmessa(db.Model):
 
     def __repr__(self) -> str:
         return f"<Transizione {self.stato_da}->{self.stato_a}>"
-
-
-class StoricoStato(db.Model):
-    """Registro di ogni cambiamento di stato: chi, cosa, quando.
-
-    Lo scrive il trigger, mai l'applicazione: cosi' la traccia esiste anche
-    per le modifiche fatte da uno script o a mano sul DBMS. Un registro che
-    si puo' aggirare non e' un registro.
-
-    Qui il momento e' un DateTime e non un Date, perche' due transizioni
-    avvenute nello stesso giorno devono restare ordinabili.
-    """
-
-    __tablename__ = "storico_stato"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    pratica_id: Mapped[int] = mapped_column(
-        sa.ForeignKey("pratica.id", ondelete="CASCADE"), nullable=False
-    )
-    stato_da: Mapped[str | None] = mapped_column(sa.String(30))
-    stato_a: Mapped[str] = mapped_column(sa.String(30), nullable=False)
-    quando: Mapped[dt.datetime] = mapped_column(
-        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
-    )
-    utente_id: Mapped[int | None] = mapped_column(
-        sa.ForeignKey("utente.id", ondelete="SET NULL")
-    )
-
-    pratica: Mapped[Pratica] = relationship(back_populates="storico")
-    utente: Mapped[Utente | None] = relationship()
-
-    __table_args__ = (
-        sa.Index("ix_storico_pratica", "pratica_id"),
-        # "da quanto tempo questa pratica e' ferma": ordina per data
-        # decrescente all'interno della singola pratica.
-        sa.Index("ix_storico_pratica_quando", "pratica_id", "quando"),
-    )
-
-    def __repr__(self) -> str:
-        return f"<Storico pratica={self.pratica_id} -> {self.stato_a}>"

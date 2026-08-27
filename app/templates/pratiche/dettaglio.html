@@ -1,53 +1,252 @@
 {#
-  DETTAGLIO DELLA PRATICA  ->  da scrivere in FASE 7.
+  DETTAGLIO DELLA PRATICA.
 
-  E' LA PAGINA PIU' IMPORTANTE DEL PROGETTO.
-  E' il punto da cui si raggiungono tutte le azioni, ed e' la schermata che si
-  vede di piu' nel video demo. La usano tutti e tre i ruoli: cambiano solo i
-  comandi disponibili.
+  La pagina piu' importante dell'applicazione: la vedono tutti e tre i ruoli,
+  ed e' quella da cui partiranno tutte le azioni.
 
-  IN ALTO, SEMPRE VISIBILI, LE TRE DOMANDE
-    1. in che STATO e' la pratica
-    2. cosa MANCA per andare avanti
-    3. CHI deve agire adesso
+  Per ora e' in sola lettura. I pulsanti si aggiungono man mano che le rotte
+  esistono, e ciascuno sara' dentro un {% if %} che verifica ruolo e stato.
+
+  TRE INFORMAZIONI SEMPRE IN ALTO, SEMPRE NELLO STESSO POSTO
+      in che STATO e' la pratica
+      CHI deve agire adesso
+      cosa MANCA per andare avanti
   E' il modo piu' semplice per rendere l'applicazione comprensibile a chi la
-  guarda per la prima volta, docente compresa.
-
-  SEZIONI PREVISTE
-    - intestazione con stato e prossimo passo
-    - dati della pratica (anno, periodo, istituto, referente, studente)
-    - esami concordati, con totale dei crediti dei due lati
-    - documenti, con esito della valutazione e motivazione dell'eventuale rifiuto
-    - storico delle modifiche al Learning Agreement
-    - comandi, diversi per ruolo
-
-  REGOLA SUI COMANDI
-    Nascondere un pulsante NON e' un controllo di sicurezza: serve solo a non
-    confondere l'utente. Il controllo vero sta nella route, lato server.
-    Quindi qui gli "if" servono all'usabilita', non alla protezione.
-
-  VARIABILI CHE LA ROUTE DEVE PASSARE
-    pratica       -> l'oggetto Pratica
-    modificabile  -> bool, se l'utente corrente puo' modificarla
-    puo_decidere  -> bool, se e' il docente e ci sono decisioni da prendere
+  guarda per la prima volta, e conta molto nel video.
 #}
-
 {% extends "base.html" %}
-{% from "_frammenti.html" import stato_pratica, etichetta_esito %}
+{% from "_frammenti.html" import stato_pratica, esito_documento,
+                                 esito_riconoscimento, periodo, data %}
 
-{% block titolo %}Pratica{% endblock %}
+{% block titolo %}Pratica {{ pratica.codice_pratica }}{% endblock %}
 
 {% block contenuto %}
-  <div class="alert alert-secondary">Da implementare in Fase 7.</div>
 
-  {#
-  <h1 class="h4">Pratica #{{ pratica.id }} — {{ pratica.istituto.nome }}</h1>
-
-  <div class="card mb-3">
-    <div class="card-body">
-      <p class="mb-1"><strong>Stato:</strong> {{ stato_pratica(pratica.stato) }}</p>
-      <p class="mb-0"><strong>Prossimo passo:</strong> ...</p>
-    </div>
+{# ---------- INTESTAZIONE ------------------------------------------- #}
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h1 class="h3 mb-1">Pratica {{ pratica.codice_pratica }}</h1>
+    <p class="text-body-secondary mb-0">
+      {{ pratica.istituto.nome }} — {{ pratica.istituto.citta }},
+      {{ pratica.istituto.paese }}
+    </p>
   </div>
-  #}
+  {{ stato_pratica(pratica.stato) }}
+</div>
+
+{# ---------- COSA SERVE ADESSO ---------------------------------------- #}
+{#
+  Il testo dipende dallo stato. E' scritto qui e non in Python perche' e'
+  puramente descrittivo: se domani serve anche un pulsante, allora la logica
+  si sposta nella rotta e qui resta solo la stampa.
+#}
+<div class="alert alert-info">
+  {% if pratica.stato == StatoPratica.APERTA %}
+    Lo studente sta compilando il Learning Agreement.
+    Per proseguire serve almeno un esame estero con la sua equivalenza, e il
+    documento firmato caricato.
+  {% elif pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA %}
+    In attesa della valutazione del docente referente
+    ({{ pratica.docente.nome_completo }}).
+  {% elif pratica.stato == StatoPratica.PRE_PARTENZA_COMPLETATA %}
+    Documentazione verificata dall'ufficio. Lo studente può partire e
+    registrare la data di inizio effettivo della mobilità.
+  {% elif pratica.stato == StatoPratica.MOBILITA_IN_CORSO %}
+    Mobilità in corso. Al rientro lo studente registra la data di fine e
+    carica il Transcript of Records.
+  {% elif pratica.stato == StatoPratica.IN_RICONOSCIMENTO_ESAMI %}
+    Il docente referente sta valutando gli esami sostenuti.
+    Quando tutti avranno un esito, l'ufficio potrà chiudere la pratica.
+  {% elif pratica.stato == StatoPratica.CHIUSA %}
+    Pratica chiusa. Non è più modificabile.
+  {% endif %}
+</div>
+
+{# ---------- DATI ANAGRAFICI ------------------------------------------ #}
+<div class="card mb-3">
+  <div class="card-header fw-semibold">Dati della pratica</div>
+  <div class="card-body">
+    <div class="row g-3 small">
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Studente</span><br>
+        {{ pratica.studente.nome_completo }}
+        {% if pratica.studente.matricola %}
+          <span class="text-body-secondary">
+            (matr. {{ pratica.studente.matricola }})</span>
+        {% endif %}
+      </div>
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Docente referente</span><br>
+        {{ pratica.docente.nome_completo }}
+      </div>
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Anno accademico</span><br>
+        {{ pratica.anno_accademico }}/{{ pratica.anno_accademico + 1 }}
+      </div>
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Periodo previsto</span><br>
+        {{ periodo(pratica.periodo) }}
+      </div>
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Aperta il</span><br>
+        {{ data(pratica.data_apertura) }}
+      </div>
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Verifica pre-partenza</span><br>
+        {{ data(pratica.pre_partenza_verificata_il) }}
+        {% if pratica.verificata_da %}
+          <span class="text-body-secondary">
+            — {{ pratica.verificata_da.nome_completo }}</span>
+        {% endif %}
+      </div>
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Inizio effettivo</span><br>
+        {{ data(pratica.data_inizio_effettivo) }}
+      </div>
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Fine effettiva</span><br>
+        {{ data(pratica.data_fine_effettiva) }}
+      </div>
+      <div class="col-sm-6 col-lg-4">
+        <span class="fw-semibold">Chiusa il</span><br>
+        {{ data(pratica.chiusa_il) }}
+        {% if pratica.chiusa_da %}
+          <span class="text-body-secondary">
+            — {{ pratica.chiusa_da.nome_completo }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if pratica.note %}
+      <hr>
+      <div class="small">
+        <span class="fw-semibold">Note</span><br>
+        {{ pratica.note }}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ---------- LEARNING AGREEMENT: LE VERSIONI --------------------------- #}
+<div class="card mb-3">
+  <div class="card-header fw-semibold">
+    Learning Agreement
+    {% if versioni %}
+      <span class="text-body-secondary fw-normal">
+        — {{ versioni | length }}
+        {{ 'versione' if versioni | length == 1 else 'versioni' }}</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+
+    {% if not versioni %}
+      <p class="text-body-secondary mb-0">
+        Nessuna versione del piano è ancora stata creata.</p>
+    {% else %}
+
+      {% for v in versioni %}
+        {#
+          "corrente" arriva dalla rotta ed e' la versione approvata con
+          numero piu' alto: il piano che vale davvero. Le altre restano
+          visibili come storia, ed e' esattamente il punto del versionamento.
+        #}
+        <div class="border rounded p-3 {% if not loop.last %}mb-3{% endif %}
+                    {% if corrente and v.id == corrente.id %}border-success{% endif %}">
+
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="fw-semibold">
+              Versione {{ v.numero_versione }}
+              {% if corrente and v.id == corrente.id %}
+                <span class="badge text-bg-success ms-1">piano operativo</span>
+              {% endif %}
+            </div>
+            {{ esito_documento(v.esito) }}
+          </div>
+
+          <div class="small text-body-secondary mb-2">
+            Caricata il {{ data(v.data_caricamento) }}
+            {% if v.data_decisione %}
+              · decisione del {{ data(v.data_decisione) }}
+            {% endif %}
+            {% if not v.file_path %}
+              · <span class="text-warning-emphasis">documento non ancora caricato</span>
+            {% endif %}
+          </div>
+
+          {% if v.motivazione %}
+            <div class="alert alert-danger py-2 small mb-2">
+              <span class="fw-semibold">Motivazione del rifiuto:</span>
+              {{ v.motivazione }}
+            </div>
+          {% endif %}
+
+          {# --- gli esami pianificati in questa versione --- #}
+          {% if v.corsi_esterni %}
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0 small">
+                <thead>
+                  <tr>
+                    <th>Codice estero</th>
+                    <th>Insegnamento estero</th>
+                    <th class="text-end">CFU</th>
+                    <th>Voto</th>
+                    <th>Riconoscimento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for c in v.corsi_esterni %}
+                    <tr>
+                      <td class="font-monospace">{{ c.codice }}</td>
+                      <td>{{ c.titolo }}</td>
+                      <td class="text-end">{{ c.crediti }}</td>
+                      <td>
+                        {% if c.esame %}
+                          {{ c.esame.voto }}
+                          <span class="text-body-secondary">
+                            ({{ data(c.esame.data_esame) }})</span>
+                        {% else %}
+                          <span class="text-body-secondary">—</span>
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if c.esame %}
+                          {{ esito_riconoscimento(c.esame.esito_riconoscimento) }}
+                        {% else %}
+                          <span class="text-body-secondary">—</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="small text-body-secondary mb-0">
+              Nessun esame inserito in questa versione.</p>
+          {% endif %}
+
+        </div>
+      {% endfor %}
+
+    {% endif %}
+  </div>
+</div>
+
+{# ---------- TRANSCRIPT ------------------------------------------------ #}
+<div class="card mb-3">
+  <div class="card-header fw-semibold">Transcript of Records</div>
+  <div class="card-body">
+    {% if pratica.transcript %}
+      <div class="small">
+        {{ pratica.transcript.nome_file_originale }}
+        <span class="text-body-secondary">
+          — caricato il {{ data(pratica.transcript.data_caricamento) }}</span>
+      </div>
+    {% else %}
+      <p class="text-body-secondary small mb-0">
+        Non ancora caricato. Serve per poter chiudere la pratica.</p>
+    {% endif %}
+  </div>
+</div>
+
 {% endblock %}

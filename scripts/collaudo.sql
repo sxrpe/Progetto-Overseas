@@ -45,6 +45,46 @@
 \set QUIET on
 SET client_min_messages = notice;
 
+-- ---------------------------------------------------------------------------
+-- CONTROLLO PRELIMINARE
+--
+-- Se i trigger non sono installati, meta' delle prove fallirebbe a catena e
+-- l'output diventerebbe illeggibile: le operazioni sbagliate verrebbero
+-- accettate davvero, sporcando i dati su cui si appoggiano le prove
+-- successive. Meglio accorgersene qui e fermarsi con un messaggio chiaro.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+    n_trigger INTEGER;
+    n_viste   INTEGER;
+    n_transiz INTEGER;
+BEGIN
+    SELECT count(*) INTO n_trigger
+      FROM pg_trigger WHERE NOT tgisinternal AND tgname LIKE 'trg_%';
+
+    SELECT count(*) INTO n_viste
+      FROM information_schema.views
+     WHERE table_schema = 'public' AND table_name LIKE 'v_%';
+
+    SELECT count(*) INTO n_transiz FROM transizione_ammessa;
+
+    IF n_trigger < 7 OR n_viste < 3 OR n_transiz < 6 THEN
+        RAISE EXCEPTION
+            E'\n\n  LO SCHEMA NON E'' COMPLETO, il collaudo non ha senso.\n'
+            '  trigger installati: % su 7\n'
+            '  viste installate:   % su 3\n'
+            '  transizioni:        % su 6\n\n'
+            '  Manca l''esecuzione di scripts/schema_extra_postgres.sql.\n'
+            '  Rimedio:\n'
+            '      psql overseas -f scripts/schema_extra_postgres.sql\n',
+            n_trigger, n_viste, n_transiz;
+    END IF;
+
+    RAISE NOTICE 'Schema completo: % trigger, % viste, % transizioni.',
+        n_trigger, n_viste, n_transiz;
+END $$;
+
+
 BEGIN;
 
 -- ---------------------------------------------------------------------------
@@ -157,22 +197,6 @@ BEGIN
 END $$;
 
 \echo ''
-\echo '--- TRIGGER 4: registrazione automatica nello storico ---'
-
-DO $$
-DECLARE n INTEGER;
-BEGIN
-    SELECT count(*) INTO n
-      FROM storico_stato s JOIN pratica p ON p.id = s.pratica_id
-     WHERE p.codice_pratica = 'ZZZ-001' AND s.stato_a = 'APERTA';
-    IF n = 1 THEN
-        RAISE NOTICE '[ok] la nascita della pratica e'' finita nello storico';
-    ELSE
-        RAISE NOTICE '[FALLITA] lo storico non ha registrato la nascita (righe: %)', n;
-    END IF;
-END $$;
-
-\echo ''
 \echo '--- TRIGGER 3a: transizioni di stato ammesse ---'
 
 DO $$
@@ -253,7 +277,7 @@ BEGIN
 END $$;
 
 \echo ''
-\echo '--- TRIGGER 6: il contenuto di una versione decisa e congelato ---'
+\echo '--- TRIGGER 5: il contenuto di una versione decisa e congelato ---'
 
 DO $$
 DECLARE p INTEGER; la INTEGER;
@@ -346,7 +370,7 @@ BEGIN
 END $$;
 
 \echo ''
-\echo '--- TRIGGER 5: il piano si congela al rientro ---'
+\echo '--- TRIGGER 4: il piano si congela al rientro ---'
 
 DO $$
 DECLARE p INTEGER;
@@ -362,7 +386,7 @@ BEGIN
 END $$;
 
 \echo ''
-\echo '--- TRIGGER 7 e chiusura ---'
+\echo '--- TRIGGER 6: registrazione esami, e chiusura ---'
 
 DO $$
 DECLARE p INTEGER; ce INTEGER; u INTEGER;
@@ -422,19 +446,12 @@ BEGIN
 END $$;
 
 \echo ''
-\echo '--- Storico completo e viste ---'
+\echo '--- Viste ---'
 
 DO $$
 DECLARE p INTEGER; n INTEGER; v INTEGER;
 BEGIN
     SELECT id INTO p FROM pratica WHERE codice_pratica='ZZZ-001';
-
-    SELECT count(*) INTO n FROM storico_stato WHERE pratica_id=p;
-    IF n = 6 THEN
-        RAISE NOTICE '[ok] lo storico ha registrato tutte e 6 le transizioni';
-    ELSE
-        RAISE NOTICE '[FALLITA] lo storico ha % righe invece di 6', n;
-    END IF;
 
     SELECT numero_versione INTO v
       FROM v_learning_agreement_corrente WHERE pratica_id=p;
@@ -483,7 +500,7 @@ END $$;
 
 \echo ''
 \echo '========================================================'
-\echo ' Fine del collaudo: 32 prove.'
+\echo ' Fine del collaudo: 30 prove.'
 \echo ' Se sopra ci sono solo righe [ok], l integrita e a posto.'
 \echo ' I dati di prova vengono ora annullati.'
 \echo ''

@@ -49,17 +49,37 @@ def esegui_sql_extra() -> None:
         print("  [salto] File SQL aggiuntivo ancora vuoto.")
         return
 
+    # ------------------------------------------------------------------
+    # PERCHE' IL CURSORE GREZZO E NON conn.execute() O exec_driver_sql()
+    #
+    # Il PL/pgSQL usa il segno di percentuale come segnaposto nei messaggi:
+    #     RAISE EXCEPTION 'ruolo sbagliato (trovato: %)', r;
+    #
+    # psycopg usa lo STESSO simbolo per i propri parametri, e appena riceve
+    # una lista di parametri - anche vuota - analizza la stringa e si ferma
+    # su quel "%)" con:
+    #     only '%s', '%b', '%t' are allowed as placeholders
+    #
+    # exec_driver_sql passa sempre una tupla vuota, quindi fa scattare
+    # l'analisi. Chiedendo il cursore del driver ed eseguendo con il SOLO
+    # testo, senza secondo argomento, psycopg non guarda i percento e passa
+    # la stringa a PostgreSQL cosi' com'e' - che e' esattamente cio' che
+    # serve per uno script DDL.
+    #
+    # Nota: nemmeno sa.text() andrebbe bene, per un motivo diverso ma
+    # analogo: interpreterebbe i ":" dell'operatore := del PL/pgSQL come
+    # segnaposto di parametri.
+    #
     # engine.begin() apre una transazione e fa commit da solo all'uscita:
     # o passa tutto il file, o non passa niente.
-    #
-    # Si usa exec_driver_sql e NON sa.text(). Due motivi:
-    #   - text() interpreterebbe i ":" dell'operatore := del PL/pgSQL come
-    #     segnaposto di parametri, e fallirebbe;
-    #   - il driver rifiuta un file con piu' istruzioni se ci sono parametri.
-    # exec_driver_sql passa la stringa al driver cosi' com'e', che e'
-    # esattamente cio' che serve per uno script DDL.
+    # ------------------------------------------------------------------
     with db.engine.begin() as conn:
-        conn.exec_driver_sql(testo)
+        cursore = conn.connection.cursor()
+        try:
+            cursore.execute(testo)
+        finally:
+            cursore.close()
+
     print("  [ok] Trigger, viste e indici aggiuntivi applicati.")
 
 
