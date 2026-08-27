@@ -1,31 +1,77 @@
-"""Schema logico tradotto in modelli SQLAlchemy.
+"""
+UserMixin é usato come classe base da cui ereditare la classe Utente, perche consente di ereditare i metodi base di login 
+che implementa flask-login nel suo modulo
+"""
+"""
+Notazioni di tipo : python ignora le notazioni ma sqlalchemy le usa per creare le colonne della tabella : 
+str | None            # stringa oppure niente. Come std::optional<string>
+list[Pratica]         # lista di Pratica. Come std::vector<Pratica>
+dict[str, int]        # dizionario stringa -> intero. Come std::map
+tuple[int, str]       # tupla di due elementi
 
-COME LEGGERE QUESTO FILE
-    Ogni classe e' una tabella. Ogni Mapped[...] e' una colonna.
-    Ogni relationship() NON e' una colonna: e' la scorciatoia Python che
-    percorre una chiave esterna al posto tuo.
 
-    In fondo a ogni classe c'e' __table_args__, che contiene i vincoli a
-    livello di tabella: UNIQUE, CHECK, indici. Quelli sono la parte
-    interessante per l'esame, non gli attributi.
+Da Mapped[int] deduce INTEGER, da Mapped[dt.date] deduce DATE. 
+Per questo in molte righe non ho scritto il tipo dentro mapped_column(): lo deduce da solo. 
+Dove l'ho scritto — sa.String(120) — è perché serviva la lunghezza, che dall'annotazione non si ricava.
+"""
 
-CONVENZIONI ADOTTATE
-    - chiave primaria surrogata "id" ovunque, anche nelle entita' deboli:
-      la chiave concettuale composta diventa un vincolo UNIQUE. Scelta
-      implementativa, dichiarata in relazione.
-    - tutte le date sono Date e non DateTime. Confrontare un timestamp con
-      una data in un CHECK ("verificata alle 14:00 <= partita il giorno
-      stesso") darebbe falsi negativi. L'unica eccezione e' lo storico.
-    - gli enum diventano VARCHAR + CHECK, non tipi nativi PostgreSQL.
+
+"""Lo schema logico tradotto in classi SQLAlchemy.
+
+COME SI LEGGE QUESTO FILE
+    Ogni classe e' una tabella. Dentro ogni classe trovi solo quattro tipi
+    di riga, ripetuti:
+
+      1) una colonna
+             nome: Mapped[str] = mapped_column(sa.String(80), nullable=False)
+
+      2) una colonna che punta a un'altra tabella (chiave esterna)
+             studente_id: Mapped[int] = mapped_column(
+                 sa.ForeignKey("utente.id"))
+
+      3) la scorciatoia per arrivare all'oggetto puntato
+         (NON e' una colonna: la colonna e' quella del punto 2)
+             studente: Mapped[Utente] = relationship(...)
+
+      4) un vincolo, dentro __table_args__ in fondo alla classe
+             sa.CheckConstraint("crediti > 0", name="ck_crediti_positivi")
+
+    Se riconosci queste quattro forme, il file lo leggi tutto.
+
+COME SI SCRIVONO I VINCOLI
+    Le stringhe dentro CheckConstraint sono SQL puro: SQLAlchemy le copia nel
+    CREATE TABLE senza interpretarle. Sono scritte per esteso, cosi' quello
+    che leggi qui e' esattamente quello che finisce nel database.
+
+    Due forme ricorrono spesso e conviene riconoscerle a colpo d'occhio:
+
+      "se A allora B"     ->   NOT (A) OR (B)
+                               In SQL non esiste l'implicazione. Si scrive
+                               cosi', ed e' logicamente equivalente.
+
+      "o entrambi o nessuno dei due"
+                          ->   (A IS NULL) = (B IS NULL)
+                               Vero quando sono tutti e due nulli o tutti e
+                               due valorizzati.
+
+    Sui confronti fra date, la forma e' sempre
+        X IS NULL OR Y IS NULL OR X <= Y
+    perche' senza i due controlli sui NULL il confronto darebbe NULL appena
+    una delle due date manca, e il vincolo smetterebbe di dire qualcosa.
 
 QUELLO CHE QUI NON C'E'
-    I trigger e le viste. Non sono esprimibili con l'ORM e stanno in
-    scripts/schema_extra_postgres.sql, eseguito da init_db subito dopo
-    create_all(). Ogni vincolo che vive li' e' segnalato nei commenti con
-    la sigla [SQL].
+    I trigger e le viste, che l'ORM non sa esprimere. Stanno in
+    scripts/schema_extra_postgres.sql, eseguito da init_db subito dopo la
+    creazione delle tabelle. Dove un vincolo vive li', il commento della
+    classe lo dice.
 """
 
 from __future__ import annotations
+# ^ Questa riga serve solo a permettere di nominare una classe prima che sia
+#   stata definita: Pratica parla di LearningAgreement, che sta duecento
+#   righe piu' sotto. E' il sostituto della forward declaration del C++.
+#   Vale solo per le annotazioni (quello che sta fra ":" e "="); dentro gli
+#   argomenti di una funzione i nomi vanno comunque fra virgolette.
 
 import datetime as dt
 
@@ -34,111 +80,56 @@ from flask_login import UserMixin
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.enums import (
-    EsitoDocumento,
-    EsitoRiconoscimento,
-    Periodo,
-    Ruolo,
-    StatoPratica,
-    STATI_DOPO_PARTENZA,
-    STATI_DOPO_PRE_PARTENZA,
-    STATI_DOPO_RIENTRO,
-    valori,
-)
 from app.extensions import db
 
 
-# ---------------------------------------------------------------------------
-# Piccoli aiuti per scrivere i vincoli in modo leggibile
-# ---------------------------------------------------------------------------
-
-def _enum(enum_class, nome: str) -> sa.Enum:
-    """VARCHAR + CHECK invece del tipo ENUM nativo. Vedi app/enums.py."""
-    return sa.Enum(
-        enum_class,
-        name=nome,
-        native_enum=False,
-        values_callable=valori,
-        validate_strings=True,
-    )
-
-
-def _elenco(stati) -> str:
-    """Formatta una tupla di enum come lista SQL: 'A', 'B', 'C'."""
-    return ", ".join(f"'{s.value}'" for s in stati)
-
-
-def _ordine(prima: str, dopo: str) -> str:
-    """Vincolo di ordinamento temporale tollerante ai NULL.
-
-    Scritto ingenuamente come "prima <= dopo", il confronto sarebbe NULL
-    (quindi non violato ma nemmeno utile) appena una delle due date manca.
-    La forma esplicita rende chiaro nel DDL che i NULL sono ammessi.
-    """
-    return f"{prima} IS NULL OR {dopo} IS NULL OR {prima} <= {dopo}"
-
-
-def _implica(condizione: str, conseguenza: str) -> str:
-    """Implicazione logica: se vale la condizione, deve valere la conseguenza.
-
-    In SQL non esiste l'operatore di implicazione: A -> B si scrive
-    NOT A OR B.
-    """
-    return f"NOT ({condizione}) OR ({conseguenza})"
-
-
-def _insieme_nullo(*colonne: str) -> str:
-    """Le colonne sono tutte nulle oppure tutte valorizzate.
-
-    Nasce dalla traduzione delle relazioni (0,1): una relazione o c'e' tutta
-    o non c'e', quindi chiave esterna e attributo devono comparire insieme.
-    Nel modello concettuale non serviva scriverlo.
-    """
-    prima, *resto = colonne
-    pezzi = [f"({prima} IS NULL) = ({altra} IS NULL)" for altra in resto]
-    return " AND ".join(pezzi)
-
-
-# ---------------------------------------------------------------------------
-# UTENTE
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  UTENTE
+# ===========================================================================
 
 class Utente(UserMixin, db.Model):
-    """Collasso della generalizzazione Utente / Studente / Docente / Ufficio.
+    """Studenti, docenti referenti e personale d'ufficio, in un'unica tabella.
 
-    TRADUZIONE
-        Nel concettuale erano un padre e tre figli. Qui sono una sola tabella
-        con un discriminatore "ruolo" e gli attributi specifici resi
-        nullabili (solo "matricola", in questo caso).
+    TRADUZIONE DAL MODELLO CONCETTUALE
+        Nel concettuale c'era una generalizzazione: un padre Utente e tre
+        figli. Qui la gerarchia e' collassata in una tabella sola, con una
+        colonna "ruolo" che fa da discriminatore e "matricola" resa nullabile
+        perche' appartiene al solo sottotipo Studente.
 
-    COSA SI PERDE
-        Le relazioni del concettuale puntavano al sottotipo giusto: la
-        referenza andava a Docente, non a Utente. Dopo il collasso tutte le
+    COSA SI PERDE COL COLLASSO
+        Nel concettuale la relazione "referenza" collegava la Pratica al
+        sottotipo Docente: il vincolo era espresso dal disegno. Ora tutte le
         chiavi esterne puntano a "utente" e nulla impedisce di mettere uno
-        studente come docente referente.
-        [SQL] Il trigger trg_ruoli_pratica ripristina quella garanzia.
+        studente come referente.
+        [SQL] Il trigger trg_ruoli_pratica ripristina quella garanzia. E' un
+        vincolo che non nasce dal dominio ma dalla traduzione, ed e' la
+        giustificazione piu' pulita che abbiamo per l'uso di un trigger.
 
-    PERCHE' UserMixin
-        Flask-Login pretende che l'oggetto utente sappia rispondere a
-        is_authenticated, get_id() e poco altro. UserMixin fornisce
-        implementazioni ragionevoli di tutto, gratis.
+    PERCHE' EREDITA DA DUE CLASSI
+        db.Model  -> la rende una tabella
+        UserMixin -> le aggiunge i quattro metodi che Flask-Login pretende
+                     (is_authenticated, is_active, is_anonymous, get_id).
+        Sono due librerie che non si conoscono fra loro e i cui pezzi si
+        combinano senza attriti perche' toccano metodi diversi.
     """
 
     __tablename__ = "utente"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
     email: Mapped[str] = mapped_column(sa.String(120), nullable=False)
     password_hash: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     nome: Mapped[str] = mapped_column(sa.String(80), nullable=False)
     cognome: Mapped[str] = mapped_column(sa.String(80), nullable=False)
-    ruolo: Mapped[Ruolo] = mapped_column(_enum(Ruolo, "ruolo"), nullable=False)
+    ruolo: Mapped[str] = mapped_column(sa.String(20), nullable=False)
 
-    # Nullabile perche' appartiene al solo sottotipo Studente.
+    # Nullabile: nel concettuale apparteneva al solo sottotipo Studente.
     matricola: Mapped[str | None] = mapped_column(sa.String(20))
 
-    # --- relazioni (nessuna colonna: sono viste sulle chiavi esterne) ------
-    # foreign_keys e' obbligatorio: pratica ha QUATTRO chiavi esterne verso
-    # utente, e senza indicazione esplicita SQLAlchemy non sa quale usare.
+    # --- scorciatoie verso le pratiche -----------------------------------
+    # foreign_keys serve perche' la tabella pratica ha QUATTRO chiavi esterne
+    # verso utente: senza indicazione esplicita SQLAlchemy non sa quale
+    # seguire e si ferma con un errore all'avvio.
     pratiche_come_studente: Mapped[list[Pratica]] = relationship(
         back_populates="studente",
         foreign_keys="Pratica.studente_id",
@@ -149,27 +140,40 @@ class Utente(UserMixin, db.Model):
     )
 
     __table_args__ = (
-        # U1 - identificatore dell'entita' nel modello concettuale.
+        # E' una tupla: la virgola dopo l'ultimo elemento serve davvero.
+
+        # L'identificatore dell'entita' nel modello concettuale.
         sa.UniqueConstraint("email", name="uq_utente_email"),
-        # U2 - in PostgreSQL un UNIQUE ammette piu' NULL, quindi questo
+
+        # In PostgreSQL un UNIQUE ammette piu' righe con NULL, quindi questo
         # vincolo non disturba docenti e personale d'ufficio.
         sa.UniqueConstraint("matricola", name="uq_utente_matricola"),
-        # C19 - la matricola esiste se e solo se l'utente e' uno studente.
+
+        sa.CheckConstraint(
+            "ruolo IN ('STUDENTE', 'DOCENTE', 'UFFICIO')",
+            name="ck_utente_ruolo",
+        ),
+
+        # La matricola c'e' se e solo se l'utente e' uno studente.
         # E' la traccia lasciata dal collasso della generalizzazione: nel
         # concettuale l'attributo stava sul solo sottotipo e non serviva
         # nessun vincolo.
         sa.CheckConstraint(
-            f"(ruolo = '{Ruolo.STUDENTE.value}') = (matricola IS NOT NULL)",
+            "(ruolo = 'STUDENTE') = (matricola IS NOT NULL)",
             name="ck_utente_matricola_solo_studenti",
         ),
-        sa.CheckConstraint("length(trim(email)) > 0", name="ck_utente_email_non_vuota"),
+
+        sa.CheckConstraint(
+            "length(trim(email)) > 0",
+            name="ck_utente_email_non_vuota",
+        ),
     )
 
     # --- password ---------------------------------------------------------
     # La password in chiaro non entra mai nel database. generate_password_hash
-    # applica una funzione di hash lenta e con sale: due utenti con la stessa
-    # password producono hash diversi, e provare tutte le password a forza
-    # bruta costa tempo macchina.
+    # le applica una funzione di hash lenta e con sale: due utenti con la
+    # stessa password ottengono hash diversi, e provarle tutte a forza bruta
+    # costa tempo macchina.
 
     def imposta_password(self, in_chiaro: str) -> None:
         self.password_hash = generate_password_hash(in_chiaro)
@@ -177,36 +181,41 @@ class Utente(UserMixin, db.Model):
     def verifica_password(self, in_chiaro: str) -> bool:
         return check_password_hash(self.password_hash, in_chiaro)
 
-    # --- comodita' per i template ------------------------------------------
+    # --- comodita' per i template -----------------------------------------
+    # @property fa si' che si usino senza parentesi: utente.e_studente.
+    # Non esistono nel database, sono calcolate ogni volta. Servono a tenere
+    # i template leggibili.
+
     @property
     def e_studente(self) -> bool:
-        return self.ruolo == Ruolo.STUDENTE
+        return self.ruolo == "STUDENTE"
 
     @property
     def e_docente(self) -> bool:
-        return self.ruolo == Ruolo.DOCENTE
+        return self.ruolo == "DOCENTE"
 
     @property
     def e_ufficio(self) -> bool:
-        return self.ruolo == Ruolo.UFFICIO
+        return self.ruolo == "UFFICIO"
 
     @property
     def nome_completo(self) -> str:
         return f"{self.nome} {self.cognome}"
 
     def __repr__(self) -> str:
-        return f"<Utente {self.email} ({self.ruolo.value})>"
+        # E' quello che il debugger mostra al posto di <Utente object at 0x7f..>
+        return f"<Utente {self.email} ({self.ruolo})>"
 
 
-# ---------------------------------------------------------------------------
-# ISTITUTO OSPITANTE
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  ISTITUTO OSPITANTE
+# ===========================================================================
 
 class Istituto(db.Model):
     """Catalogo degli atenei partner, gestito dall'ufficio Overseas.
 
-    Entita' forte: lo studente sceglie da questa lista, non digita il nome.
-    E' la traccia a richiederlo esplicitamente.
+    Lo studente sceglie da questa lista, non digita il nome: lo richiede
+    esplicitamente il punto 2 dei requisiti funzionali.
     """
 
     __tablename__ = "istituto"
@@ -219,7 +228,8 @@ class Istituto(db.Model):
     pratiche: Mapped[list[Pratica]] = relationship(back_populates="istituto")
 
     __table_args__ = (
-        # Il nome da solo non basta: atenei omonimi in paesi diversi esistono.
+        # Il nome da solo non basta come identificatore: atenei omonimi in
+        # citta' diverse esistono.
         sa.UniqueConstraint("nome", "citta", name="uq_istituto_nome_citta"),
     )
 
@@ -227,23 +237,24 @@ class Istituto(db.Model):
         return f"<Istituto {self.nome} ({self.citta})>"
 
 
-# ---------------------------------------------------------------------------
-# CORSO INTERNO
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  CORSO INTERNO
+# ===========================================================================
 
 class CorsoInterno(db.Model):
     """Catalogo degli insegnamenti di Ca' Foscari.
 
     PERCHE' QUI IL CATALOGO C'E' E PER I CORSI ESTERI NO
-        Il codice lo assegna l'ateneo, che e' la stessa organizzazione che
-        ospita l'applicazione: e' stabile e univoco, quindi la dipendenza
-        funzionale codice -> titolo, crediti vale davvero. Ripetere titolo e
-        crediti su ogni riconoscimento sarebbe ridondanza, con il rischio che
-        lo stesso insegnamento risulti riconosciuto con crediti diversi in
-        pratiche diverse.
-        Sui corsi esteri quella dipendenza non vale, e infatti la' non c'e'
-        catalogo. La differenza di trattamento e' motivata dalla presenza o
-        assenza della dipendenza funzionale, non dallo stile.
+        Il codice lo assegna Ca' Foscari, che e' la stessa organizzazione che
+        ospita l'applicazione: e' stabile e univoco per costruzione, quindi
+        la dipendenza funzionale "codice determina titolo e crediti" vale
+        davvero. Ripetere titolo e crediti su ogni riconoscimento sarebbe
+        ridondanza, con il rischio concreto che lo stesso insegnamento
+        risulti riconosciuto con crediti diversi in pratiche diverse.
+
+        Sui corsi esteri quella dipendenza non vale, e infatti la' il
+        catalogo non c'e'. La differenza di trattamento e' motivata dalla
+        presenza o assenza della dipendenza funzionale, non dallo stile.
     """
 
     __tablename__ = "corso_interno"
@@ -260,9 +271,10 @@ class CorsoInterno(db.Model):
 
     __table_args__ = (
         sa.UniqueConstraint("codice", name="uq_corso_interno_codice"),
-        sa.CheckConstraint("crediti > 0", name="ck_corso_interno_crediti_positivi"),
+        sa.CheckConstraint("crediti > 0", name="ck_corso_interno_crediti"),
         sa.CheckConstraint(
-            "length(trim(titolo)) > 0", name="ck_corso_interno_titolo_non_vuoto"
+            "length(trim(titolo)) > 0",
+            name="ck_corso_interno_titolo",
         ),
     )
 
@@ -270,56 +282,72 @@ class CorsoInterno(db.Model):
         return f"<CorsoInterno {self.codice}>"
 
 
-# ---------------------------------------------------------------------------
-# PRATICA
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  PRATICA
+# ===========================================================================
 
 class Pratica(db.Model):
     """L'entita' centrale: una mobilita' dalla creazione alla chiusura.
 
-    LE QUATTRO CHIAVI ESTERNE VERSO UTENTE
-        studente_id      relazione "apertura", con data_apertura come suo
-                         attributo. E' anche la relazione di titolarita':
-                         chi apre la pratica ne e' il proprietario, quindi
-                         una relazione sola e non due.
-        docente_id       relazione "referenza", senza attributi.
-        verificata_da_id relazione "verifica pre-partenza", (0,1).
-        chiusa_da_id     relazione "chiusura", (0,1).
+    LE QUATTRO CHIAVI ESTERNE VERSO UTENTE, E COSA SIGNIFICANO
+        studente_id       relazione "apertura", con data_apertura come suo
+                          attributo. E' anche la relazione di titolarita':
+                          chi apre la pratica ne e' il proprietario, quindi
+                          una relazione sola e non due.
+        docente_id        relazione "referenza", senza attributi.
+        verificata_da_id  relazione "verifica pre-partenza", cardinalita'
+                          (0,1) dal lato pratica.
+        chiusa_da_id      relazione "chiusura", (0,1).
 
-        Le ultime due, avendo cardinalita' massima 1 dal lato pratica, non
-        diventano tabelle: collassano in colonne. Da qui i vincoli di
-        coerenza a coppie qui sotto, che nel concettuale non esistevano.
+        Le ultime due, avendo massimo 1 dal lato pratica, nel modello logico
+        non diventano tabelle: collassano in colonne. Da qui nascono i due
+        vincoli "o entrambi o nessuno" piu' sotto, che nel concettuale non
+        servivano perche' una relazione o c'e' tutta o non c'e'.
 
-    LE DUE DATE CHE NON SONO ATTRIBUTI DI RELAZIONE
+    LE DUE DATE CHE INVECE NON SONO ATTRIBUTI DI RELAZIONE
         data_inizio_effettivo e data_fine_effettiva sono fatti sulla
-        mobilita' dichiarati dallo studente, non atti amministrativi
-        compiuti da qualcuno. Per questo stanno sull'entita'.
+        mobilita' dichiarati dallo studente, non atti amministrativi compiuti
+        da qualcuno. Per questo stanno sull'entita'.
+
+    [SQL] Vincoli su questa tabella che l'ORM non puo' esprimere:
+        trg_ruoli_pratica       i quattro utenti devono avere il ruolo giusto
+                                (legge un'altra tabella)
+        trg_transizione_stato   la coppia (stato vecchio, stato nuovo) deve
+                                essere ammessa, e le precondizioni sui dati
+                                soddisfatte (serve OLD, e conta righe altrove)
+        trg_pratica_immutabile  una pratica chiusa non si modifica piu'
+        trg_registra_storico    ogni transizione finisce in storico_stato
     """
 
     __tablename__ = "pratica"
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    # Identificatore del modello concettuale, qui affiancato al surrogato.
+    # Identificatore del modello concettuale, affiancato alla chiave
+    # surrogata "id" per comodita' dell'ORM.
     codice_pratica: Mapped[str] = mapped_column(sa.String(20), nullable=False)
 
     anno_accademico: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    periodo: Mapped[Periodo] = mapped_column(_enum(Periodo, "periodo"), nullable=False)
-    stato: Mapped[StatoPratica] = mapped_column(
-        _enum(StatoPratica, "stato_pratica"),
-        nullable=False,
-        default=StatoPratica.APERTA,
+    periodo: Mapped[str] = mapped_column(sa.String(30), nullable=False)
+    stato: Mapped[str] = mapped_column(
+        sa.String(30), nullable=False, default="APERTA"
     )
+    note: Mapped[str | None] = mapped_column(sa.Text)
 
-    # --- apertura (studente) ----------------------------------------------
+    # --- apertura: relazione con lo studente, con la sua data -------------
     studente_id: Mapped[int] = mapped_column(
         sa.ForeignKey("utente.id", ondelete="RESTRICT"), nullable=False
     )
+    # ATTENZIONE: default=dt.date.today SENZA parentesi.
+    # Con le parentesi si passerebbe il risultato calcolato una volta sola
+    # all'avvio del server, e tutte le pratiche avrebbero la stessa data.
+    # Senza parentesi si passa la funzione, che viene chiamata a ogni
+    # inserimento.
     data_apertura: Mapped[dt.date] = mapped_column(
         sa.Date, nullable=False, default=dt.date.today
     )
 
-    # --- referenza (docente) ----------------------------------------------
+    # --- referenza: relazione col docente, senza attributi ----------------
     docente_id: Mapped[int] = mapped_column(
         sa.ForeignKey("utente.id", ondelete="RESTRICT"), nullable=False
     )
@@ -329,35 +357,37 @@ class Pratica(db.Model):
         sa.ForeignKey("istituto.id", ondelete="RESTRICT"), nullable=False
     )
 
-    # --- verifica pre-partenza (ufficio) ----------------------------------
+    # --- verifica pre-partenza: relazione (0,1) con l'ufficio -------------
     verificata_da_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("utente.id", ondelete="RESTRICT")
     )
     pre_partenza_verificata_il: Mapped[dt.date | None] = mapped_column(sa.Date)
 
-    # --- fatti sulla mobilita' (studente) ---------------------------------
+    # --- fatti sulla mobilita', dichiarati dallo studente -----------------
     data_inizio_effettivo: Mapped[dt.date | None] = mapped_column(sa.Date)
     data_fine_effettiva: Mapped[dt.date | None] = mapped_column(sa.Date)
 
-    # --- chiusura (ufficio) ------------------------------------------------
+    # --- chiusura: relazione (0,1) con l'ufficio --------------------------
     chiusa_da_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("utente.id", ondelete="RESTRICT")
     )
     chiusa_il: Mapped[dt.date | None] = mapped_column(sa.Date)
 
-    # --- relazioni ---------------------------------------------------------
+    # --- scorciatoie -------------------------------------------------------
     studente: Mapped[Utente] = relationship(
         back_populates="pratiche_come_studente", foreign_keys=[studente_id]
     )
     docente: Mapped[Utente] = relationship(
         back_populates="pratiche_come_referente", foreign_keys=[docente_id]
     )
-    verificata_da: Mapped[Utente | None] = relationship(foreign_keys=[verificata_da_id])
+    verificata_da: Mapped[Utente | None] = relationship(
+        foreign_keys=[verificata_da_id]
+    )
     chiusa_da: Mapped[Utente | None] = relationship(foreign_keys=[chiusa_da_id])
     istituto: Mapped[Istituto] = relationship(back_populates="pratiche")
 
-    # cascade delete-orphan: cancellando la pratica spariscono le sue
-    # versioni di Learning Agreement e il transcript. E' corretto proprio
+    # cascade="all, delete-orphan": cancellando la pratica spariscono le sue
+    # versioni di Learning Agreement e il suo Transcript. E' corretto proprio
     # perche' sono entita' deboli: fuori dalla pratica non significano nulla.
     learning_agreements: Mapped[list[LearningAgreement]] = relationship(
         back_populates="pratica",
@@ -378,12 +408,11 @@ class Pratica(db.Model):
         # UNICITA'
         # ------------------------------------------------------------------
         sa.UniqueConstraint("codice_pratica", name="uq_pratica_codice"),
-        # Evita il doppione per errore. NON impedisce piu' pratiche allo
-        # stesso studente: la traccia le ammette esplicitamente.
+
+        # Evita il doppione per errore. NON impedisce a uno studente di avere
+        # piu' pratiche: la traccia lo consente esplicitamente.
         sa.UniqueConstraint(
-            "studente_id",
-            "anno_accademico",
-            "istituto_id",
+            "studente_id", "anno_accademico", "istituto_id",
             name="uq_pratica_studente_anno_istituto",
         ),
 
@@ -391,156 +420,150 @@ class Pratica(db.Model):
         # DOMINIO
         # ------------------------------------------------------------------
         sa.CheckConstraint(
+            "periodo IN ('PRIMO_SEMESTRE', 'SECONDO_SEMESTRE', 'INTERO_ANNO')",
+            name="ck_pratica_periodo",
+        ),
+        sa.CheckConstraint(
+            "stato IN ('APERTA', 'ATTESA_APPROVAZIONE_LA',"
+            " 'PRE_PARTENZA_COMPLETATA', 'MOBILITA_IN_CORSO',"
+            " 'IN_RICONOSCIMENTO_ESAMI', 'CHIUSA')",
+            name="ck_pratica_stato",
+        ),
+        sa.CheckConstraint(
             "anno_accademico BETWEEN 2000 AND 2100",
             name="ck_pratica_anno_plausibile",
         ),
 
         # ------------------------------------------------------------------
-        # COERENZA DELLE RELAZIONI (0,1) COLLASSATE IN COLONNE
-        # Una relazione o c'e' tutta o non c'e'.
+        # O ENTRAMBI O NESSUNO DEI DUE
+        # Nascono dal collasso delle relazioni (0,1) in colonne: una
+        # relazione o c'e' tutta o non c'e'.
         # ------------------------------------------------------------------
         sa.CheckConstraint(
-            _insieme_nullo("verificata_da_id", "pre_partenza_verificata_il"),
+            "(verificata_da_id IS NULL) = (pre_partenza_verificata_il IS NULL)",
             name="ck_pratica_verifica_coerente",
         ),
         sa.CheckConstraint(
-            _insieme_nullo("chiusa_da_id", "chiusa_il"),
+            "(chiusa_da_id IS NULL) = (chiusa_il IS NULL)",
             name="ck_pratica_chiusura_coerente",
         ),
 
         # ------------------------------------------------------------------
-        # PREREQUISITI FRA FATTI
-        # Ancorati ai fatti, MAI allo stato corrente. Un vincolo del tipo
-        # "puoi valorizzare l'arrivo solo se lo stato e' PRE_PARTENZA"
-        # verrebbe rivalutato a ogni UPDATE e si romperebbe da solo appena
-        # la pratica avanza. Un CHECK vede la riga intera, non la colonna
-        # che stai scrivendo.
+        # PREREQUISITI FRA FATTI      "se A allora B"  ->  NOT (A) OR (B)
+        #
+        # Sono ancorati ai fatti, MAI allo stato corrente. Un vincolo del
+        # tipo "puoi valorizzare l'inizio solo se lo stato e' PRE_PARTENZA"
+        # si romperebbe da solo appena la pratica avanza: un CHECK viene
+        # rivalutato a ogni modifica della riga, non solo quando scrivi
+        # quella colonna.
         # ------------------------------------------------------------------
         sa.CheckConstraint(
-            _implica(
-                "data_inizio_effettivo IS NOT NULL",
-                "pre_partenza_verificata_il IS NOT NULL",
-            ),
+            "NOT (data_inizio_effettivo IS NOT NULL)"
+            " OR (pre_partenza_verificata_il IS NOT NULL)",
             name="ck_pratica_inizio_dopo_verifica",
         ),
         sa.CheckConstraint(
-            _implica(
-                "data_fine_effettiva IS NOT NULL",
-                "data_inizio_effettivo IS NOT NULL",
-            ),
+            "NOT (data_fine_effettiva IS NOT NULL)"
+            " OR (data_inizio_effettivo IS NOT NULL)",
             name="ck_pratica_fine_dopo_inizio",
         ),
         sa.CheckConstraint(
-            _implica("chiusa_il IS NOT NULL", "data_fine_effettiva IS NOT NULL"),
+            "NOT (chiusa_il IS NOT NULL)"
+            " OR (data_fine_effettiva IS NOT NULL)",
             name="ck_pratica_chiusura_dopo_fine",
         ),
 
         # ------------------------------------------------------------------
         # ORDINAMENTO TEMPORALE
+        # I due controlli sui NULL servono: senza, il confronto darebbe NULL
+        # appena una delle due date manca.
         # ------------------------------------------------------------------
         sa.CheckConstraint(
-            _ordine("data_apertura", "pre_partenza_verificata_il"),
+            "data_apertura IS NULL OR pre_partenza_verificata_il IS NULL"
+            " OR data_apertura <= pre_partenza_verificata_il",
             name="ck_pratica_ord_apertura_verifica",
         ),
         sa.CheckConstraint(
-            _ordine("pre_partenza_verificata_il", "data_inizio_effettivo"),
+            "pre_partenza_verificata_il IS NULL OR data_inizio_effettivo IS NULL"
+            " OR pre_partenza_verificata_il <= data_inizio_effettivo",
             name="ck_pratica_ord_verifica_inizio",
         ),
         sa.CheckConstraint(
-            _ordine("data_inizio_effettivo", "data_fine_effettiva"),
+            "data_inizio_effettivo IS NULL OR data_fine_effettiva IS NULL"
+            " OR data_inizio_effettivo <= data_fine_effettiva",
             name="ck_pratica_ord_inizio_fine",
         ),
         sa.CheckConstraint(
-            _ordine("data_fine_effettiva", "chiusa_il"),
+            "data_fine_effettiva IS NULL OR chiusa_il IS NULL"
+            " OR data_fine_effettiva <= chiusa_il",
             name="ck_pratica_ord_fine_chiusura",
         ),
 
         # ------------------------------------------------------------------
         # DALLO STATO AI FATTI
-        # Sempre in questa direzione. "Stato X implica che il fatto sia
-        # avvenuto" resta vero anche negli stati successivi; l'implicazione
-        # inversa si romperebbe al primo avanzamento.
+        # Sempre in questa direzione, mai il contrario. "Lo stato X implica
+        # che il fatto sia gia' avvenuto" resta vero anche negli stati
+        # successivi; l'implicazione inversa si romperebbe al primo
+        # avanzamento della pratica.
         # ------------------------------------------------------------------
         sa.CheckConstraint(
-            _implica(
-                f"stato IN ({_elenco(STATI_DOPO_PRE_PARTENZA)})",
-                "pre_partenza_verificata_il IS NOT NULL",
-            ),
+            "stato NOT IN ('PRE_PARTENZA_COMPLETATA', 'MOBILITA_IN_CORSO',"
+            " 'IN_RICONOSCIMENTO_ESAMI', 'CHIUSA')"
+            " OR pre_partenza_verificata_il IS NOT NULL",
             name="ck_pratica_stato_implica_verifica",
         ),
         sa.CheckConstraint(
-            _implica(
-                f"stato IN ({_elenco(STATI_DOPO_PARTENZA)})",
-                "data_inizio_effettivo IS NOT NULL",
-            ),
+            "stato NOT IN ('MOBILITA_IN_CORSO', 'IN_RICONOSCIMENTO_ESAMI',"
+            " 'CHIUSA')"
+            " OR data_inizio_effettivo IS NOT NULL",
             name="ck_pratica_stato_implica_inizio",
         ),
         sa.CheckConstraint(
-            _implica(
-                f"stato IN ({_elenco(STATI_DOPO_RIENTRO)})",
-                "data_fine_effettiva IS NOT NULL",
-            ),
+            "stato NOT IN ('IN_RICONOSCIMENTO_ESAMI', 'CHIUSA')"
+            " OR data_fine_effettiva IS NOT NULL",
             name="ck_pratica_stato_implica_fine",
         ),
         sa.CheckConstraint(
-            _implica(
-                f"stato = '{StatoPratica.CHIUSA.value}'",
-                "chiusa_il IS NOT NULL",
-            ),
+            "stato <> 'CHIUSA' OR chiusa_il IS NOT NULL",
             name="ck_pratica_chiusa_implica_data",
         ),
 
         # ------------------------------------------------------------------
-        # INDICI PER LE INTERROGAZIONI FREQUENTI
+        # INDICI PER LE INTERROGAZIONI PIU' FREQUENTI
         # ------------------------------------------------------------------
-        # "tutte le pratiche di questo studente" e "tutte le pratiche di cui
-        # sono referente" sono le due query eseguite a ogni accesso.
+        # "le mie pratiche" e "le pratiche di cui sono referente" girano a
+        # ogni accesso allo spazio personale.
         sa.Index("ix_pratica_studente", "studente_id"),
         sa.Index("ix_pratica_docente", "docente_id"),
-        # dashboard dell'ufficio: pratiche per stato, per anno.
+        # dashboard dell'ufficio: pratiche per stato e per anno accademico.
         sa.Index("ix_pratica_stato", "stato"),
         sa.Index("ix_pratica_anno_stato", "anno_accademico", "stato"),
     )
 
-    # ---------------------------------------------------------------------
-    # [SQL] Vincoli su questa tabella che l'ORM non puo' esprimere:
-    #   trg_ruoli_pratica       studente_id ha ruolo STUDENTE, docente_id
-    #                           ruolo DOCENTE, verificata_da_id e
-    #                           chiusa_da_id ruolo UFFICIO. Legge un'altra
-    #                           tabella: fuori portata per un CHECK.
-    #   trg_transizione_stato   la coppia (stato precedente, stato nuovo)
-    #                           deve esistere in transizione_ammessa.
-    #                           Serve il valore OLD della riga.
-    #   trg_precondizioni_stato per PRE_PARTENZA_COMPLETATA serve un LA
-    #                           approvato; per CHIUSA serve il transcript e
-    #                           nessun esame NON_VALUTATO. Conta righe su
-    #                           altre tabelle.
-    #   trg_pratica_immutabile  una pratica CHIUSA non si modifica piu'.
-    #   trg_storico_stato       registra ogni transizione.
-    # ---------------------------------------------------------------------
-
     @property
     def learning_agreement_corrente(self) -> LearningAgreement | None:
-        """La versione approvata con numero piu' alto.
+        """La versione approvata con numero piu' alto, cioe' il piano valido.
 
-        Attenzione: questa proprieta' lavora in memoria e va bene per la
-        singola pratica gia' caricata. Per interrogare molte pratiche usare
-        la vista learning_agreement_corrente, altrimenti si ricade nel
-        problema N+1.
+        Lavora sugli oggetti gia' caricati in memoria: va bene sulla pagina di
+        dettaglio di una pratica. Per un elenco di molte pratiche usare la
+        vista v_learning_agreement_corrente, altrimenti si fa una query per
+        ogni riga dell'elenco (il problema N+1).
         """
-        approvate = [
-            la for la in self.learning_agreements
-            if la.esito == EsitoDocumento.APPROVATO
-        ]
-        return max(approvate, key=lambda la: la.numero_versione, default=None)
+        migliore = None
+        for la in self.learning_agreements:
+            if la.esito != "APPROVATO":
+                continue
+            if migliore is None or la.numero_versione > migliore.numero_versione:
+                migliore = la
+        return migliore
 
     def __repr__(self) -> str:
-        return f"<Pratica {self.codice_pratica} {self.stato.value}>"
+        return f"<Pratica {self.codice_pratica} {self.stato}>"
 
 
-# ---------------------------------------------------------------------------
-# LEARNING AGREEMENT
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  LEARNING AGREEMENT
+# ===========================================================================
 
 class LearningAgreement(db.Model):
     """Una versione del piano concordato. Entita' debole rispetto a Pratica.
@@ -551,14 +574,25 @@ class LearningAgreement(db.Model):
         precedentemente concordata". Con le versioni quel ripristino non e'
         un'operazione: la versione precedente non e' mai stata toccata e
         resta quella valida. Un progetto che modificasse le righe sul posto
-        dovrebbe implementare un annullamento vero.
+        dovrebbe implementare un annullamento vero, con tutto quello che
+        comporta.
 
     IL FILE NON STA NEL DATABASE
-        file_path e' il percorso su disco, dentro UPLOAD_FOLDER. Il nome con
-        cui il file e' salvato lo genera l'applicazione (un UUID), mai
-        l'utente: cosi' nessuno puo' caricare un file chiamato
-        "../../config.py". Il nome originale si conserva a parte, solo per
-        mostrarlo.
+        file_path e' il percorso su disco, dentro la cartella degli upload.
+        Il nome con cui il file viene salvato lo genera l'applicazione (un
+        UUID), mai l'utente: cosi' nessuno puo' caricare un file chiamato
+        "../../config.py". Il nome originale si conserva a parte, e serve
+        solo per mostrarlo a video.
+
+    PERCHE' file_path E' NULLABILE
+        La riga nasce come bozza quando lo studente comincia a compilare il
+        piano; il PDF arriva dopo. Il file diventa obbligatorio al momento
+        dell'invio, ed e' il trigger sulla transizione a garantirlo.
+
+    [SQL] trg_la_creabile: una nuova versione si puo' creare solo con la
+          pratica in APERTA, ATTESA_APPROVAZIONE_LA o MOBILITA_IN_CORSO.
+          Dopo il rientro il piano e' congelato, ed e' questo che garantisce
+          che i voti si registrino su una versione che non cambia piu'.
     """
 
     __tablename__ = "learning_agreement"
@@ -569,13 +603,11 @@ class LearningAgreement(db.Model):
     )
     numero_versione: Mapped[int] = mapped_column(sa.Integer, nullable=False)
 
-    file_path: Mapped[str] = mapped_column(sa.String(255), nullable=False)
-    nome_file_originale: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    file_path: Mapped[str | None] = mapped_column(sa.String(255))
+    nome_file_originale: Mapped[str | None] = mapped_column(sa.String(255))
 
-    esito: Mapped[EsitoDocumento] = mapped_column(
-        _enum(EsitoDocumento, "esito_documento"),
-        nullable=False,
-        default=EsitoDocumento.IN_ATTESA,
+    esito: Mapped[str] = mapped_column(
+        sa.String(20), nullable=False, default="IN_ATTESA"
     )
     motivazione: Mapped[str | None] = mapped_column(sa.Text)
     data_caricamento: Mapped[dt.date] = mapped_column(
@@ -591,79 +623,75 @@ class LearningAgreement(db.Model):
     )
 
     __table_args__ = (
-        # La chiave concettuale: identificazione esterna, numero di versione
-        # dentro la pratica. Qui e' un UNIQUE perche' la chiave primaria e'
-        # il surrogato.
+        # La chiave del modello concettuale: identificazione esterna, cioe'
+        # numero di versione DENTRO la pratica. Qui e' un UNIQUE perche' la
+        # chiave primaria e' la surrogata "id".
         sa.UniqueConstraint(
             "pratica_id", "numero_versione", name="uq_la_pratica_versione"
         ),
         sa.CheckConstraint("numero_versione >= 1", name="ck_la_versione_positiva"),
 
-        # Se rifiutato, la motivazione e' obbligatoria: la traccia lo chiede
-        # esplicitamente al punto 4 dei requisiti funzionali.
         sa.CheckConstraint(
-            _implica(
-                f"esito = '{EsitoDocumento.RIFIUTATO.value}'",
-                "motivazione IS NOT NULL AND length(trim(motivazione)) > 0",
-            ),
+            "esito IN ('IN_ATTESA', 'APPROVATO', 'RIFIUTATO')",
+            name="ck_la_esito",
+        ),
+
+        # Se rifiutato, la motivazione e' obbligatoria: lo chiede
+        # esplicitamente il punto 4 dei requisiti funzionali.
+        sa.CheckConstraint(
+            "NOT (esito = 'RIFIUTATO')"
+            " OR (motivazione IS NOT NULL AND length(trim(motivazione)) > 0)",
             name="ck_la_motivazione_se_rifiutato",
         ),
+
         # Una decisione presa ha sempre una data; una non ancora presa non
         # puo' averne una.
         sa.CheckConstraint(
-            f"(esito = '{EsitoDocumento.IN_ATTESA.value}') "
-            f"= (data_decisione IS NULL)",
+            "(esito = 'IN_ATTESA') = (data_decisione IS NULL)",
             name="ck_la_data_decisione_coerente",
         ),
         sa.CheckConstraint(
-            _ordine("data_caricamento", "data_decisione"),
+            "data_caricamento IS NULL OR data_decisione IS NULL"
+            " OR data_caricamento <= data_decisione",
             name="ck_la_ord_caricamento_decisione",
         ),
+
         # Una sola proposta pendente alla volta per pratica.
-        # INDICE UNICO PARZIALE: non esprimibile con UniqueConstraint, che
-        # non ammette una clausola WHERE. E' uno degli esempi di vincolo che
-        # richiede SQL specifico del DBMS.
+        # E' un INDICE UNICO PARZIALE: la clausola WHERE lo limita alle sole
+        # righe in attesa. UniqueConstraint non ammette un WHERE, quindi
+        # questo vincolo si puo' esprimere solo cosi', ed e' uno degli
+        # esempi di vincolo che richiede sintassi specifica del DBMS.
         sa.Index(
             "uq_la_una_sola_in_attesa",
             "pratica_id",
             unique=True,
-            postgresql_where=sa.text(
-                f"esito = '{EsitoDocumento.IN_ATTESA.value}'"
-            ),
+            postgresql_where=sa.text("esito = 'IN_ATTESA'"),
         ),
         sa.Index("ix_la_pratica", "pratica_id"),
         sa.Index("ix_la_esito", "esito"),
     )
 
-    # ---------------------------------------------------------------------
-    # [SQL] trg_la_stato_pratica: una nuova versione si puo' creare solo se
-    #       la pratica e' in APERTA, ATTESA_APPROVAZIONE_LA o
-    #       MOBILITA_IN_CORSO. Dopo il rientro il piano e' congelato, ed e'
-    #       cio' che garantisce che i voti si registrino su una versione che
-    #       non cambia piu'.
-    # ---------------------------------------------------------------------
-
     def __repr__(self) -> str:
         return f"<LA v{self.numero_versione} pratica={self.pratica_id}>"
 
 
-# ---------------------------------------------------------------------------
-# TRANSCRIPT OF RECORDS
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  TRANSCRIPT OF RECORDS
+# ===========================================================================
 
 class Transcript(db.Model):
     """Il documento rilasciato dall'istituto ospitante. Entita' debole.
 
     NON HA UN ESITO, ED E' VOLUTO
-        Il punto 10 della traccia richiede, per la chiusura, che il
-        Transcript sia "stato caricato" - non approvato. La valutazione
-        avviene sui singoli esami, non sul documento.
+        Il punto 10 della traccia richiede, per la chiusura, che il Transcript
+        sia "stato caricato" - non approvato. La valutazione avviene sui
+        singoli esami, non sul documento.
 
     NON E' COLLEGATO AGLI ESAMI, ED E' VOLUTO
         E' la prova documentale, non il contenitore dei dati. Collegarlo ai
         corsi creerebbe un ciclo nello schema: dal voto si arriverebbe alla
         pratica per due strade diverse, senza nulla che garantisca che
-        convergano.
+        convergano sulla stessa.
     """
 
     __tablename__ = "transcript"
@@ -681,8 +709,8 @@ class Transcript(db.Model):
     pratica: Mapped[Pratica] = relationship(back_populates="transcript")
 
     __table_args__ = (
-        # E' questo vincolo a realizzare la cardinalita' (0,1) del
-        # concettuale: al massimo un transcript per pratica.
+        # E' questo UNIQUE a realizzare la cardinalita' (0,1) del
+        # concettuale: al massimo un Transcript per pratica.
         sa.UniqueConstraint("pratica_id", name="uq_transcript_pratica"),
     )
 
@@ -690,9 +718,9 @@ class Transcript(db.Model):
         return f"<Transcript pratica={self.pratica_id}>"
 
 
-# ---------------------------------------------------------------------------
-# CORSO ESTERNO
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  CORSO ESTERNO
+# ===========================================================================
 
 class CorsoEsterno(db.Model):
     """Un insegnamento pianificato all'estero, dentro una versione del piano.
@@ -702,15 +730,22 @@ class CorsoEsterno(db.Model):
         estere non abbiamo autorita', lo stesso codice puo' indicare corsi
         diversi in atenei diversi e cambiare titolo o crediti da un anno
         all'altro. Identifica un corso com'era in quel momento e in quel
-        piano.
+        piano, quindi per identificarlo serve anche la versione del Learning
+        Agreement a cui appartiene.
 
     PERCHE' NON UN CATALOGO
-        La dipendenza funzionale codice -> titolo, crediti non vale nel
-        dominio. Non essendoci dipendenza non c'e' ridondanza da eliminare,
-        e un catalogo imporrebbe ai dati un vincolo che la realta' non
-        rispetta. La verifica di veridicita' e' affidata al controllo
-        dell'ufficio in fase pre-partenza: vincolo di processo, non di
-        schema.
+        La dipendenza funzionale "codice determina titolo e crediti" non vale
+        nel dominio. Non essendoci dipendenza non c'e' ridondanza da
+        eliminare, e un catalogo imporrebbe ai dati un vincolo che la realta'
+        non rispetta: il primo studente con un codice riusato non riuscirebbe
+        a inserire i suoi dati veri.
+        La verifica di veridicita' e' affidata al controllo dell'ufficio in
+        fase pre-partenza: e' un vincolo di processo, non di schema, e come
+        tale e' dichiarato fra le assunzioni.
+
+    [SQL] trg_corso_esterno_modificabile: il contenuto si puo' toccare solo
+          finche' la versione a cui appartiene e' IN_ATTESA. E' cio' che
+          rende vero l'assunto su cui poggia tutto il versionamento.
     """
 
     __tablename__ = "corso_esterno"
@@ -734,13 +769,13 @@ class CorsoEsterno(db.Model):
     )
 
     __table_args__ = (
-        # La chiave concettuale: codice dentro la versione del piano.
+        # La chiave del concettuale: il codice DENTRO quella versione.
         sa.UniqueConstraint(
             "learning_agreement_id", "codice", name="uq_corso_esterno_la_codice"
         ),
-        sa.CheckConstraint("crediti > 0", name="ck_corso_esterno_crediti_positivi"),
+        sa.CheckConstraint("crediti > 0", name="ck_corso_esterno_crediti"),
         sa.CheckConstraint(
-            "length(trim(titolo)) > 0", name="ck_corso_esterno_titolo_non_vuoto"
+            "length(trim(titolo)) > 0", name="ck_corso_esterno_titolo"
         ),
         sa.Index("ix_corso_esterno_la", "learning_agreement_id"),
     )
@@ -749,21 +784,21 @@ class CorsoEsterno(db.Model):
         return f"<CorsoEsterno {self.codice} la={self.learning_agreement_id}>"
 
 
-# ---------------------------------------------------------------------------
-# EQUIVALENZA  (l'unica tabella nata da una relazione)
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  EQUIVALENZA
+# ===========================================================================
 
 class Equivalenza(db.Model):
     """Il mapping fra un insegnamento estero e uno di Ca' Foscari.
 
-    E' l'unica relazione N:M dello schema, e per questo l'unica che diventa
-    una tabella. La chiave primaria e' la coppia delle due chiavi esterne:
-    la stessa equivalenza non ha senso due volte.
+    E' l'unica relazione N:M dello schema, e per questo l'unica che nella
+    traduzione logica diventa una tabella. La chiave primaria e' la coppia
+    delle due chiavi esterne: la stessa equivalenza non ha senso due volte.
 
     LE DUE CARDINALITA' N SERVONO ENTRAMBE
-        piu' esami esteri riconosciuti su un unico insegnamento interno, e
-        un esame estero scomposto su piu' insegnamenti interni. Entrambi i
-        casi si ottengono senza modellare nulla in piu'.
+        piu' esami esteri riconosciuti su un unico insegnamento interno, e un
+        esame estero scomposto su piu' insegnamenti interni. Entrambi i casi
+        si ottengono senza modellare nulla in piu'.
     """
 
     __tablename__ = "equivalenza"
@@ -779,9 +814,9 @@ class Equivalenza(db.Model):
     corso_interno: Mapped[CorsoInterno] = relationship(back_populates="equivalenze")
 
     __table_args__ = (
-        # La chiave primaria indicizza gia' il primo campo; questo indice
-        # serve alla direzione opposta ("quali esami esteri sono stati
-        # riconosciuti come Basi di Dati").
+        # La chiave primaria indicizza gia' il primo campo. Questo indice
+        # serve alla direzione opposta: "quali esami esteri sono stati
+        # riconosciuti come Basi di Dati".
         sa.Index("ix_equivalenza_interno", "corso_interno_id"),
     )
 
@@ -789,26 +824,30 @@ class Equivalenza(db.Model):
         return f"<Equivalenza {self.corso_esterno_id}->{self.corso_interno_id}>"
 
 
-# ---------------------------------------------------------------------------
-# ESAME
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  ESAME
+# ===========================================================================
 
 class Esame(db.Model):
     """Il risultato conseguito su un insegnamento estero pianificato.
 
-    PERCHE' ENTITA' SEPARATA E NON ATTRIBUTI NULLABILI SU CorsoEsterno
+    PERCHE' UN'ENTITA' SEPARATA E NON DELLE COLONNE NULLABILI SU CorsoEsterno
         Voto e data sono attributi che sono tutti nulli insieme o tutti
-        valorizzati insieme: e' la firma di un'entita' nascosta. Con gli
-        attributi sul corso, il NULL significherebbe due cose diverse e
+        valorizzati insieme: e' la firma di un'entita' nascosta. Con le
+        colonne sul corso, il valore NULL significherebbe due cose diverse e
         indistinguibili: "esame non ancora registrato" e "esame che lo
         studente non ha sostenuto". Con l'entita' separata, l'assenza della
         riga e' la seconda, senza bisogno di convenzioni.
 
     PERCHE' NON UNA GENERALIZZAZIONE
         Un esame non e' un tipo particolare di corso: e' un fatto distinto
-        che riguarda un corso. La gerarchia avrebbe avuto un solo sottotipo
-        e nessun attributo proprio nel supertipo, e nella traduzione logica
-        avrebbe dato comunque questa stessa tabella.
+        che riguarda un corso. Una gerarchia con un solo sottotipo e nessun
+        attributo proprio nel supertipo, nella traduzione logica, avrebbe
+        dato comunque questa stessa tabella.
+
+    [SQL] trg_esame_registrabile: si registra solo con la pratica in
+          IN_RICONOSCIMENTO_ESAMI, e solo su un corso che appartiene alla
+          versione operativa del piano.
     """
 
     __tablename__ = "esame"
@@ -821,10 +860,8 @@ class Esame(db.Model):
     voto: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     data_esame: Mapped[dt.date] = mapped_column(sa.Date, nullable=False)
 
-    esito_riconoscimento: Mapped[EsitoRiconoscimento] = mapped_column(
-        _enum(EsitoRiconoscimento, "esito_riconoscimento"),
-        nullable=False,
-        default=EsitoRiconoscimento.NON_VALUTATO,
+    esito_riconoscimento: Mapped[str] = mapped_column(
+        sa.String(20), nullable=False, default="NON_VALUTATO"
     )
     data_riconoscimento: Mapped[dt.date | None] = mapped_column(sa.Date)
 
@@ -833,59 +870,64 @@ class Esame(db.Model):
     __table_args__ = (
         # Realizza la cardinalita' (0,1): al massimo un esito per corso.
         sa.UniqueConstraint("corso_esterno_id", name="uq_esame_corso"),
-        # Voto in trentesimi. 31 rappresenta la lode; se preferite tenerla
-        # come colonna booleana separata, cambiate qui.
-        sa.CheckConstraint("voto BETWEEN 18 AND 31", name="ck_esame_voto_valido"),
+
+        # Voto in trentesimi. 31 rappresenta la lode; se preferite una
+        # colonna booleana separata, si cambia qui e basta.
+        sa.CheckConstraint("voto BETWEEN 18 AND 31", name="ck_esame_voto"),
+
         sa.CheckConstraint(
-            f"(esito_riconoscimento = '{EsitoRiconoscimento.NON_VALUTATO.value}') "
-            f"= (data_riconoscimento IS NULL)",
+            "esito_riconoscimento IN ('NON_VALUTATO', 'ACCETTATO', 'RIFIUTATO')",
+            name="ck_esame_esito",
+        ),
+        sa.CheckConstraint(
+            "(esito_riconoscimento = 'NON_VALUTATO')"
+            " = (data_riconoscimento IS NULL)",
             name="ck_esame_data_riconoscimento_coerente",
         ),
         sa.CheckConstraint(
-            _ordine("data_esame", "data_riconoscimento"),
+            "data_esame IS NULL OR data_riconoscimento IS NULL"
+            " OR data_esame <= data_riconoscimento",
             name="ck_esame_ord_esame_riconoscimento",
         ),
-        # La query "restano esami da valutare in questa pratica?" gira a ogni
+
+        # "restano esami da valutare in questa pratica?" gira a ogni
         # visualizzazione della pagina dell'ufficio.
         sa.Index("ix_esame_esito", "esito_riconoscimento"),
     )
-
-    # ---------------------------------------------------------------------
-    # [SQL] trg_esame_stato_pratica: un esame si registra solo quando la
-    #       pratica e' in IN_RICONOSCIMENTO_ESAMI, e solo su un corso che
-    #       appartiene alla versione operativa del piano. Attraversa tre
-    #       tabelle: fuori portata per un CHECK.
-    # ---------------------------------------------------------------------
 
     def __repr__(self) -> str:
         return f"<Esame corso={self.corso_esterno_id} voto={self.voto}>"
 
 
-# ---------------------------------------------------------------------------
-# STRUTTURE DI SUPPORTO
-# Non appartengono al dominio applicativo: sono al servizio dei vincoli e
-# della tracciabilita'. Nel diagramma concettuale non compaiono.
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  STRUTTURE DI SUPPORTO
+#  Non appartengono al dominio applicativo: sono al servizio dei vincoli e
+#  della tracciabilita'. Nel diagramma concettuale non compaiono.
+# ===========================================================================
 
 class TransizioneAmmessa(db.Model):
-    """La macchina a stati come DATO, non come codice.
+    """La macchina a stati come dato, invece che scritta dentro il trigger.
 
-    Tre vantaggi rispetto a un CASE scritto dentro il trigger:
-      - il trigger diventa dieci righe che non cambiano mai;
-      - la tabella si stampa nella relazione ed e' la documentazione;
+    Tre vantaggi:
+      - il corpo del trigger diventa dieci righe che non cambiano mai: per
+        modificare il processo si aggiunge o si toglie una riga qui;
+      - la tabella si stampa nella relazione ed e' gia' la documentazione
+        della macchina a stati;
       - l'interfaccia interroga la stessa tabella per decidere quali pulsanti
-        mostrare, quindi le regole non sono scritte in due posti diversi.
+        mostrare, quindi le regole stanno in un posto solo invece che
+        duplicate fra trigger e template.
+
+    Il ruolo fa parte della chiave primaria: una transizione consentita a
+    piu' ruoli si esprime con piu' righe, senza toccare il codice.
+
+    Le sei righe vengono inserite da scripts/schema_extra_postgres.sql.
     """
 
     __tablename__ = "transizione_ammessa"
 
-    stato_da: Mapped[StatoPratica] = mapped_column(
-        _enum(StatoPratica, "stato_pratica"), primary_key=True
-    )
-    stato_a: Mapped[StatoPratica] = mapped_column(
-        _enum(StatoPratica, "stato_pratica"), primary_key=True
-    )
-    ruolo: Mapped[Ruolo] = mapped_column(_enum(Ruolo, "ruolo"), primary_key=True)
+    stato_da: Mapped[str] = mapped_column(sa.String(30), primary_key=True)
+    stato_a: Mapped[str] = mapped_column(sa.String(30), primary_key=True)
+    ruolo: Mapped[str] = mapped_column(sa.String(20), primary_key=True)
 
     descrizione: Mapped[str] = mapped_column(sa.String(200), nullable=False)
 
@@ -894,17 +936,18 @@ class TransizioneAmmessa(db.Model):
     )
 
     def __repr__(self) -> str:
-        return f"<Transizione {self.stato_da.value}->{self.stato_a.value}>"
+        return f"<Transizione {self.stato_da}->{self.stato_a}>"
 
 
 class StoricoStato(db.Model):
     """Registro di ogni cambiamento di stato: chi, cosa, quando.
 
-    Scritto dal trigger, mai dall'applicazione: cosi' la traccia esiste anche
-    per le modifiche fatte da uno script o a mano sul DBMS.
+    Lo scrive il trigger, mai l'applicazione: cosi' la traccia esiste anche
+    per le modifiche fatte da uno script o a mano sul DBMS. Un registro che
+    si puo' aggirare non e' un registro.
 
-    Qui il timestamp e' un DateTime e non un Date, perche' due transizioni
-    nello stesso giorno devono restare ordinabili.
+    Qui il momento e' un DateTime e non un Date, perche' due transizioni
+    avvenute nello stesso giorno devono restare ordinabili.
     """
 
     __tablename__ = "storico_stato"
@@ -913,12 +956,8 @@ class StoricoStato(db.Model):
     pratica_id: Mapped[int] = mapped_column(
         sa.ForeignKey("pratica.id", ondelete="CASCADE"), nullable=False
     )
-    stato_da: Mapped[StatoPratica | None] = mapped_column(
-        _enum(StatoPratica, "stato_pratica")
-    )
-    stato_a: Mapped[StatoPratica] = mapped_column(
-        _enum(StatoPratica, "stato_pratica"), nullable=False
-    )
+    stato_da: Mapped[str | None] = mapped_column(sa.String(30))
+    stato_a: Mapped[str] = mapped_column(sa.String(30), nullable=False)
     quando: Mapped[dt.datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
@@ -932,9 +971,9 @@ class StoricoStato(db.Model):
     __table_args__ = (
         sa.Index("ix_storico_pratica", "pratica_id"),
         # "da quanto tempo questa pratica e' ferma": ordina per data
-        # decrescente dentro la pratica.
+        # decrescente all'interno della singola pratica.
         sa.Index("ix_storico_pratica_quando", "pratica_id", "quando"),
     )
 
     def __repr__(self) -> str:
-        return f"<Storico pratica={self.pratica_id} -> {self.stato_a.value}>"
+        return f"<Storico pratica={self.pratica_id} -> {self.stato_a}>"

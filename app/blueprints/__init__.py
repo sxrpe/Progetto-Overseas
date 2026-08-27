@@ -14,5 +14,8 @@ In questo progetto ce n'e' uno per area funzionale:
 
 Il vantaggio non e' estetico: siccome ogni area ha il suo prefisso, guardando
 un URL sai gia' chi dovrebbe poterci accedere. Questo rende i permessi
-verificabili a colpo d'occhio, sia da te sia da chi corregge.
+verificabili a colpo d'occhio.
+
+Questo file consente al linguaggio di interpretare questa cartella come insieme di pacchetti che poi vengono assemblati dall'altro init
+con create_app()
 """
