@@ -15,7 +15,9 @@ from flask import Blueprint, render_template
 
 from app.extensions import db
 
+"Stiamo dicendo a Flask l'esistenza di questa rotta"
 pubblico_bp = Blueprint("pubblico", __name__)
+"__name__ é la rotta scritta con i punti app.blueprints.pubblico"
 
 
 @pubblico_bp.route("/")

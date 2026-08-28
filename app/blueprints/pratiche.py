@@ -17,6 +17,9 @@ UNA PAGINA PER CONCETTO, NON UNA PER RUOLO
 import sqlalchemy as sa
 from flask import Blueprint, abort, render_template
 from sqlalchemy.orm import selectinload
+from flask_login import login_required
+
+
 
 from app.extensions import db
 from app.models import CorsoEsterno, LearningAgreement, Pratica
@@ -24,8 +27,9 @@ from app.security import esigi_accesso
 
 pratiche_bp = Blueprint("pratiche", __name__, url_prefix="/pratiche")
 
-
+"Stiamo dando alla tabella delle rotte che si crea flask che accetta solo interi se non ce intero rifiuta la rotta, il comando Blueprint() serve appunto perche crea questa tabella"
 @pratiche_bp.route("/<int:id_pratica>")
+@login_required
 def dettaglio(id_pratica: int):
     """Mostra una pratica, a chi ha diritto di vederla.
 
