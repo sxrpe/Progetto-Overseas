@@ -121,7 +121,7 @@ def create_app(nome_config: str = "dev") -> Flask:
         Ruolo,
         StatoPratica,
     )
-
+    # Sono le variabili pubbliche del render template jinja che sfrutta per renderizzare, senza dovergli passare ogni volta mille parametri
     app.jinja_env.globals.update(
         Ruolo=Ruolo,
         Periodo=Periodo,
