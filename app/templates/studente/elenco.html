@@ -12,13 +12,7 @@
   Schede Bootstrap (card), non tabelle: la traccia non lo impone, ma un
   elenco di schede resta leggibile anche a finestra stretta durante il video.
 
-  DA PREVEDERE
-    - il caso di elenco vuoto, con un messaggio che dica cosa fare
-    - l'etichetta di stato sempre nella stessa posizione
-    - un solo pulsante per riga, "Apri", verso pratiche.dettaglio
 
-  VARIABILI DALLA ROUTE
-    pratiche -> lista di Pratica, gia' filtrata e ordinata
 #}
 
 {% extends "base.html" %}
@@ -28,8 +22,6 @@
 
 {% block contenuto %}
   <h1 class="h4 mb-3">Le mie pratiche</h1>
-
-
 
   {% if not pratiche %}
     <div class="card"><div class="card-body">
@@ -47,8 +39,8 @@
           Anno {{ p.anno_accademico }} · referente {{ p.docente.nominativo }}
         </p>
         {{ stato_pratica(p.stato) }}
-        {#<a class="btn btn-sm btn-dark float-end"
-           href="{{ url_for('pratiche.dettaglio', pratica_id=p.id) }}">Apri</a>#}
+        <a class="btn btn-sm btn-dark float-end"
+           href="{{ url_for('pratiche.dettaglio', id_pratica=p.id) }}">Apri</a>
       </div>
     </div>
   {% endfor %}

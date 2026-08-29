@@ -518,12 +518,8 @@ class Pratica(db.Model):
 
     @property
     def learning_agreement_corrente(self) -> LearningAgreement | None:
-        """La versione approvata con numero piu' alto, cioe' il piano valido.
-
-        Lavora sugli oggetti gia' caricati in memoria: va bene sulla pagina di
-        dettaglio di una pratica. Per un elenco di molte pratiche usare la
-        vista v_learning_agreement_corrente, altrimenti si fa una query per
-        ogni riga dell'elenco (il problema N+1).
+        """
+        Fa una ricerca di massimo fra i LA con la versione massima, che non sia gia apporvato
         """
         migliore = None
         for la in self.learning_agreements:

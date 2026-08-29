@@ -1,7 +1,5 @@
 {#
-  CREAZIONE DI UNA PRATICA  ->  FASE 7.2
-
-  CAMPI RICHIESTI DALLA TRACCIA
+ CAMPI RICHIESTI DALLA TRACCIA
     anno accademico, istituto ospitante, periodo previsto, docente referente,
     note (facoltative)
 
@@ -19,9 +17,7 @@
     Ogni campo va rivalidato nella route, lato server.
 
   VARIABILI DALLA ROUTE
-    istituti -> lista di Istituto attivi
-    docenti  -> lista di Utente con ruolo docente
-    dati     -> dizionario dei valori gia' inseriti (vuoto la prima volta)
+    da completare
 #}
 
 {% extends "base.html" %}
@@ -29,5 +25,67 @@
 
 {% block contenuto %}
   <h1 class="h4 mb-3">Nuova pratica di mobilità</h1>
-  <div class="alert alert-secondary">Da implementare in Fase 7.2.</div>
+  <div class="card">
+  <div class="card-body">
+
+    <form method="post" action="">
+      <div class="row g-3">
+
+        <div class="col-12 col-md-6">
+          <label for="anno_accademico" class="form-label">Anno accademico</label>
+          <select class="form-select" id="anno_accademico" name="anno_accademico" required>
+            <option value="" selected disabled>Scegli…</option>
+            {% for a in anni %}
+              <option value="{{ a }}"  {% if a == anno_selected %} selected {% endif %}>{{ a }}/{{ a + 1 }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label for="periodo" class="form-label">Periodo previsto</label>
+          <select class="form-select" id="periodo" name="periodo" required>
+            <option value="" selected disabled>Scegli…</option>
+            {% for p in Periodo.TUTTI %}
+              <option value="{{ p }}" {% if p == periodo_selected %} selected {% endif %}>{{ Periodo.ETICHETTE[p] }}</option>
+            {% endfor %}
+
+          </select>
+        </div>
+
+        <div class="col-12">
+          <label for="istituto_id" class="form-label">Istituto ospitante</label>
+          <select class="form-select" id="istituto_id" name="istituto_id" required>
+            <option value="" selected disabled>Scegli…</option>
+            {% for a in atenei %}
+              <option value="{{ a.id }}" {% if a.id == istituto_selected %} selected {% endif %}>{{ a.nome }} — {{ a.citta }}, {{ a.paese }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Solo atenei convenzionati.</div>
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label for="docente_id" class="form-label">Docente referente</label>
+          <select class="form-select" id="docente_id" name="docente_id" required>
+            <option value="" selected disabled>Scegli…</option>
+            {% for d in docenti %}
+              <option value="{{ d.id }}" {% if d.id == docente_selected %} selected {% endif %}>{{ d.nome_completo }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-12">
+          <label for="note" class="form-label">Note <span class="text-body-secondary fw-normal">(facoltative)</span></label>
+          <textarea class="form-control" id="note" name="note" rows="3"></textarea>
+        </div>
+
+        <div class="col-12 d-flex gap-2 flex-wrap">
+          <button type="submit" class="btn btn-primary">Crea pratica</button>
+          <a href="{{ url_for('studente.elenco_pratiche') }}" class="btn btn-outline-secondary">Annulla</a>
+        </div>
+
+      </div>
+    </form>
+
+  </div>
+</div>
 {% endblock %}
