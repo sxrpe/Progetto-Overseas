@@ -25,7 +25,7 @@ from app.extensions import db
 from app.models import CorsoEsterno, LearningAgreement, Pratica
 from app.security import esigi_accesso
 
-pratiche_bp = Blueprint("pratiche", __name__, url_prefix="/pratiche")
+pratiche_bp = Blueprint("pratiche", __name__)
 
 "Stiamo dando alla tabella delle rotte che si crea flask che accetta solo interi se non ce intero rifiuta la rotta, il comando Blueprint() serve appunto perche crea questa tabella"
 @pratiche_bp.route("/<int:id_pratica>")

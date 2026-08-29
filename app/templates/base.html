@@ -57,16 +57,19 @@
     <div class="collapse navbar-collapse" id="menu">
       <ul class="navbar-nav me-auto">
         {% if current_user.is_authenticated %}
+          {% if current_user.e_studente %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('studente.elenco_pratiche') }}">
+                Le mie pratiche</a>
+            </li>
+          {% endif %}
+
           {#
             Le voci per ruolo si accendono man mano che le rotte esistono.
             Scommentare una riga PRIMA che la rotta esista fa fallire
             url_for() con un BuildError, e la pagina non si apre piu'.
 
-          {% if current_user.e_studente %}
-            <li class="nav-item">
-              <a class="nav-link" href="{{ url_for('studente.elenco') }}">
-                Le mie pratiche</a>
-            </li>
+
           {% elif current_user.e_docente %}
             <li class="nav-item">
               <a class="nav-link" href="{{ url_for('docente.elenco') }}">
@@ -88,7 +91,7 @@
             <span class="navbar-text">
               {{ current_user.nome_completo }}
               <span class="badge text-bg-secondary ms-1">
-                {{ current_user.ruolo | lower }}
+                {{ current_user.ruolo | upper }}
               </span>
             </span>
           </li>

@@ -27,13 +27,39 @@ ATTENZIONE ALLE QUERY A CASCATA
     Per accorgertene: metti SQL_ECHO=1 nel .env e conta le righe che scorrono.
 """
 
-from flask import Blueprint
+import sqlalchemy as sa
+from flask import Blueprint, render_template
+from flask_login import current_user, login_required
+from sqlalchemy.orm import selectinload
+
+from app.enums import Ruolo
+from app.extensions import db
+from app.models import Pratica
+from app.security import ruolo_richiesto
 
 studente_bp = Blueprint("studente", __name__)
 
 
-# @studente_bp.route("/pratiche")
-# @login_required
-# @ruolo_richiesto(Ruolo.STUDENTE)
-# def elenco_pratiche():
-#     ...
+@studente_bp.route("/pratiche", methods=["GET"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def elenco_pratiche():
+    """Le pratiche dello studente collegato, e solo le sue.
+        option pre carica nell'oggetto le informazioni, di base si crea un'oggetto, e poi quando richiedi una info legata
+        ad una chiave estera, sotto viene fatta una query, precaricarlo cosi semplifica di molto le richieste al db
+        Ordinamento : ordiniamo per anno accademico e sucessivamente per il codice pratica
+        scalard e all ci permettono di creare una lista di oggetti python
+    """
+    pratiche = db.session.scalars(
+        sa.select(Pratica)
+        .where(Pratica.studente_id == current_user.id)
+        .options(
+            selectinload(Pratica.istituto),
+            selectinload(Pratica.docente),
+        )
+        .order_by(Pratica.anno_accademico.desc(), Pratica.codice_pratica)
+    ).all()
+
+    return render_template("studente/elenco.html", pratiche=pratiche)
+
+

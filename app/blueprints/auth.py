@@ -34,7 +34,7 @@ auth_bp = Blueprint("auth", __name__)
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    """Mostra il form (GET) e verifica le credenziali (POST).
+    """Singola rotta per due funzioni : Mostra il form (GET) e verifica le credenziali (POST).
 
     E' la stessa funzione per i due metodi HTTP: si distinguono con
     request.method. E' la convenzione di Flask e tiene vicine due cose che
@@ -49,11 +49,13 @@ def login():
         # request.form e' un dizionario con i campi del form. Il .get() con
         # valore di riserva evita l'errore se un campo manca del tutto:
         # non fidarsi mai della forma dei dati che arrivano dal browser.
+        # Questa Sintassi con () e il campo vuoto consente di evitare il rendirizzamento automatico di flask
+        # in caso di mancato inserimento del valore
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
 
         utente = db.session.scalar(
-            sa.select(Utente).where(Utente.email == email)
+            sa.select(Utente).where(Utente.email == email) # Query Parametrizzata
         )
 
         # UN SOLO MESSAGGIO PER I DUE CASI.
@@ -61,8 +63,14 @@ def login():
         # sono registrati provandoli uno per uno.
         if utente is None or not utente.verifica_password(password):
             flash("Credenziali non valide.", "danger")
-            return render_template("auth/login.html", email=email)
+            # UTILIZZO DI FLASH nel template, get_flashed_messages(with_categories=true) cattura questo messaggio
+            # (é come una scatola di sessione che si riempie e si svuota) con le categorie possiamo fare lo split delle due variabili passate
+            # {% with messaggi = get_flashed_messages(with_categories=true) %}
+            #   {% for categoria, testo in messaggi %}
 
+            return render_template("auth/login.html", email=email) #il campo email rimane compilato
+
+        # CREAZIONE COOKIE
         # Da qui in poi current_user esiste in tutta l'applicazione.
         # remember=False: la sessione finisce quando si chiude il browser.
         login_user(utente, remember=False)
@@ -77,14 +85,18 @@ def login():
         # ("https://sito-finto.it/login") e va scartato: altrimenti si crea
         # un "open redirect", cioe' un link del vostro dominio che porta a
         # una pagina di accesso contraffatta.
+
         destinazione = request.args.get("next", "")
+        #1. L'utente (non collegato) apre    /studente/pratiche
+        #2. @login_required lo blocca e costruisce il redirect:
+        # url_for("auth.login")  +  ?next=  +  l'indirizzo che voleva
         if not destinazione or urlsplit(destinazione).netloc != "":
             destinazione = url_for("pubblico.home")
 
         flash(f"Bentornato, {utente.nome}.", "success")
         return redirect(destinazione)
 
-    # GET: mostra il form vuoto.
+    # GET: mostra il form vuoto (non serve il ramo else, la richeista POST é gia stata elaborata)
     return render_template("auth/login.html", email="")
 
 
