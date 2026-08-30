@@ -28,3 +28,38 @@
 code {
     font-size: .875em;
 }
+
+
+/* ---- riga espandibile della mappatura ---- */
+/* L'animazione va da 0fr a 1fr: il browser calcola l'altezza da solo,
+   quindi non serve conoscerla in anticipo come con max-height. */
+.riga-espansa {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .25s ease;
+}
+.riga.aperta .riga-espansa    { grid-template-rows: 1fr; }
+.riga-espansa-interno         { overflow: hidden; }
+.riga.aperta .azione-modifica { display: none; }
+.riga.in-corso                { opacity: .55; pointer-events: none; }
+.riga                         { transition: box-shadow .15s ease; }
+.riga:hover                   { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+
+/* ---- i quattro passi ---- */
+.passi { display: flex; flex-wrap: wrap; gap: .5rem; }
+.passo {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-size: .8rem; padding: .35rem .8rem;
+  border: 1px solid var(--bs-border-color); border-radius: 999px;
+  background: var(--bs-body-bg);
+}
+.passo b {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15rem; height: 1.15rem; border-radius: 50%;
+  background: var(--ov-accent, #0f5a52); color: #fff;
+  font-size: .68rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .riga-espansa, .riga { transition: none; }
+}

@@ -1,0 +1,368 @@
+{#
+  MAPPATURA DEGLI ESAMI — una versione del Learning Agreement.
+
+  VARIABILI ATTESE DALLA ROTTA
+      pratica         la Pratica
+      versione        il LearningAgreement in bozza su cui si lavora
+      corsi           i CorsoEsterno di quella versione, con le equivalenze
+      corsi_interni   il catalogo Ca' Foscari, per il menu del riconoscimento
+
+  ROTTE CHE QUESTA PAGINA CHIAMA (da creare in studente.py)
+      studente.crea_corso     (id_pratica)   POST  -> JSON
+      studente.modifica_map (id_corso)     POST  -> JSON
+      studente.elimina_map  (id_corso)     POST  -> JSON
+      studente.invia_la       (id_pratica)   POST  -> redirect
+      pratiche.dettaglio      (id_pratica)   GET
+
+  COME FUNZIONA
+      Ogni riga e' un CorsoEsterno gia' salvato. "Modifica" espande il
+      pannello, "Conferma" manda un POST con fetch e aggiorna la vista
+      compatta senza ricaricare la pagina.
+
+      La riga nuova nasce dal <template> in fondo: e' identica alle altre ma
+      senza data-id e gia' aperta. La macro qui sotto genera entrambe.
+
+  ATTENZIONE
+      Tutti i pulsanti di questa lista sono type="button": non sono dentro
+      un form e non devono inviare niente. L'unico form vero e' quello di
+      invio del Learning Agreement in fondo, che funziona anche senza
+      JavaScript.
+#}
+
+{% extends "base.html" %}
+
+{#
+  MACRO DELLA RIGA.
+  Con c valorizzato produce una riga esistente; con c a none produce la riga
+  nuova, gia' aperta e senza gli indirizzi delle rotte (li ricevera' dal
+  server al primo salvataggio).
+
+  corsi_interni va passato esplicitamente: le macro non vedono le variabili
+  del template che le chiama, solo quelle registrate in jinja_env.globals.
+#}
+{% macro riga_corso(c, corsi_interni) %}
+<li class="riga card mb-2 {% if not c %}aperta nuova{% endif %}"
+    {% if c %}
+      data-id="{{ c.id }}"
+      data-url-modifica="{{ url_for('studente.modifica_map', id_map=c.id) }}"
+      data-url-elimina="{{ url_for('studente.elimina_map', id_map=c.id) }}"
+    {% endif %}>
+
+  {# ---------- vista compatta ---------- #}
+  <div class="riga-compatta d-flex align-items-center gap-3 p-3 flex-wrap">
+    {% if c %}
+      <span class="font-monospace small" data-campo="codice">{{ c.codice }}</span>
+      <span class="fw-semibold flex-grow-1" data-campo="titolo">{{ c.titolo }}</span>
+      <span class="small text-body-secondary">
+        <span data-campo="crediti">{{ c.crediti }}</span> CFU
+      </span>
+      <span class="small" data-campo="equivalenza">
+        {% if c.equivalenze %}
+          <span class="text-success">&rarr;</span>
+          {{ c.equivalenze[0].corso_interno.codice }}
+        {% else %}
+          <span class="text-danger">nessuna equivalenza</span>
+        {% endif %}
+      </span>
+      <button type="button" class="btn btn-sm btn-outline-secondary azione-modifica">
+        Modifica
+      </button>
+    {% else %}
+      <span class="fw-semibold flex-grow-1 text-body-secondary">
+        Nuovo insegnamento
+      </span>
+    {% endif %}
+    <button type="button" class="btn btn-sm btn-outline-danger azione-elimina">
+      {% if c %}Elimina{% else %}Scarta{% endif %}
+    </button>
+  </div>
+
+  {# ---------- pannello espandibile ---------- #}
+  <div class="riga-espansa">
+    <div class="riga-espansa-interno">
+      <div class="border-top p-3">
+        <div class="row g-2">
+
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">Codice estero</label>
+            <input type="text" class="form-control form-control-sm"
+                   name="codice" value="{{ c.codice if c else '' }}"
+                   maxlength="40" required>
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label small mb-1">Titolo dell'insegnamento</label>
+            <input type="text" class="form-control form-control-sm"
+                   name="titolo" value="{{ c.titolo if c else '' }}"
+                   maxlength="200" required>
+          </div>
+
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">CFU esteri</label>
+            <input type="number" class="form-control form-control-sm"
+                   name="crediti" value="{{ c.crediti if c else '' }}"
+                   min="1" max="60" required>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label small mb-1">Riconosciuto come</label>
+            <select class="form-select form-select-sm" name="corso_interno_id" required>
+              <option value="" {% if not c or not c.equivalenze %}selected{% endif %}>
+                Scegli un insegnamento di Ca' Foscari&hellip;
+              </option>
+              {% for ci in corsi_interni %}
+                <option value="{{ ci.id }}"
+                  {% if c and c.equivalenze
+                        and c.equivalenze[0].corso_interno_id == ci.id %}selected{% endif %}>
+                  {{ ci.codice }} — {{ ci.titolo }} ({{ ci.crediti }} CFU)
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-12 d-flex gap-2 align-items-center flex-wrap">
+            <button type="button" class="btn btn-sm btn-primary azione-conferma">
+              Conferma
+            </button>
+            {% if c %}
+              <button type="button" class="btn btn-sm btn-outline-secondary azione-annulla">
+                Annulla
+              </button>
+            {% endif %}
+            <span class="small text-danger ms-2 messaggio" role="alert"></span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+</li>
+{% endmacro %}
+
+{# ====================================================================================== #}
+
+{% block titolo %}Learning Agreement {{ pratica.codice_pratica }}{% endblock %}
+
+
+{% block contenuto %}
+
+{# ---------- INTESTAZIONE ---------- #}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 mb-1">Learning Agreement</h1>
+    <p class="text-body-secondary mb-0 small">
+      {{ pratica.codice_pratica }} ·
+      {{ pratica.istituto.nome }}, {{ pratica.istituto.citta }} ·
+      versione {{ versione.numero_versione }}
+    </p>
+  </div>
+  <a href="{{ url_for('pratiche.dettaglio', id_pratica=pratica.id) }}"
+     class="btn btn-outline-secondary">Torna alla pratica</a>
+</div>
+
+{# ---------- I QUATTRO PASSI ---------- #}
+<div class="passi mb-4">
+  <span class="passo"><b>1</b> Compila la mappatura</span>
+  <span class="passo"><b>2</b> Scarica il documento</span>
+  <span class="passo"><b>3</b> Firmalo</span>
+  <span class="passo"><b>4</b> Ricaricalo e invia</span>
+</div>
+
+{# ---------- LA LISTA ---------- #}
+<div id="mappatura"
+     data-url-crea="{{ url_for('studente.crea_map', id_pratica=pratica.id) }}">
+
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <h2 class="h6 mb-0 text-uppercase text-body-secondary"
+        style="letter-spacing:.06em">
+      Insegnamenti pianificati
+      <span class="fw-normal text-body-secondary">({{ corsi | length }})</span>
+    </h2>
+    <button type="button" class="btn btn-primary btn-sm" id="btn-aggiungi">
+      Aggiungi insegnamento
+    </button>
+  </div>
+
+  <ul class="list-unstyled mb-3" id="lista-corsi">
+    {% for c in corsi %}
+      {{ riga_corso(c, corsi_interni) }}
+    {% endfor %}
+  </ul>
+
+  {# messaggio di lista vuota: il JS lo nasconde appena si aggiunge una riga #}
+  <div id="lista-vuota" class="card mb-3 {% if corsi %}d-none{% endif %}">
+    <div class="card-body text-center py-4">
+      <p class="text-body-secondary mb-0 small">
+        Nessun insegnamento inserito. Aggiungine almeno uno per poter inviare
+        il Learning Agreement.
+      </p>
+    </div>
+  </div>
+
+  {# ---------- INVIO ---------- #}
+  {#
+    Questo e' un form vero, non fetch: e' l'azione che cambia lo stato della
+    pratica e deve funzionare anche se il JavaScript non parte.
+  #}
+  {#
+  <form method="post"
+        action="{{ url_for('studente.invia_la', id_pratica=pratica.id) }}">
+    <button type="submit" class="btn btn-success w-100 py-2"
+            {% if not corsi %}disabled{% endif %}>
+      Genera il documento e invia al docente referente
+    </button>
+    {% if not corsi %}
+      <p class="form-text text-center mb-0">
+        Serve almeno un insegnamento con la sua equivalenza.
+      </p>
+    {% endif %}
+  </form>
+  #}
+</div>
+
+{# ---------- MODELLO DELLA RIGA NUOVA ---------- #}
+{#
+  Il contenuto di <template> viene analizzato dal browser ma non disegnato,
+  e i suoi campi non vengono inviati da nessun form. E' un ritaglio di HTML
+  in attesa, che lo script clona quando serve.
+#}
+<template id="modello-riga">
+  {{ riga_corso(none, corsi_interni) }}
+</template>
+
+{% endblock %}
+
+
+{% block script %}
+<script>
+(function () {
+  "use strict";
+
+  const zona  = document.getElementById("mappatura");
+  const lista = document.getElementById("lista-corsi");
+  const vuota = document.getElementById("lista-vuota");
+
+  // ------------------------------------------------------------------
+  // UN SOLO ASCOLTATORE PER TUTTA LA LISTA.
+  // Registrandolo sul contenitore invece che su ogni pulsante, funziona
+  // anche sulle righe aggiunte dopo, che al momento della registrazione
+  // non esistevano ancora.
+  // ------------------------------------------------------------------
+  lista.addEventListener("click", function (evento) {
+    const riga = evento.target.closest(".riga");
+    if (!riga) return;
+
+    if (evento.target.closest(".azione-modifica")) riga.classList.add("aperta");
+    if (evento.target.closest(".azione-annulla"))  riga.classList.remove("aperta");
+    if (evento.target.closest(".azione-conferma")) salva(riga);
+    if (evento.target.closest(".azione-elimina"))  elimina(riga);
+  });
+
+  document.getElementById("btn-aggiungi").addEventListener("click", function () {
+    const modello = document.getElementById("modello-riga");
+    lista.appendChild(modello.content.cloneNode(true));
+    vuota.classList.add("d-none");
+    const nuova = lista.lastElementChild;
+    nuova.querySelector("input").focus();
+    nuova.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+
+  // Raccoglie tutti i campi con un attributo name dentro la riga.
+  function campi(riga) {
+    const dati = new FormData();
+    riga.querySelectorAll("[name]").forEach(function (campo) {
+      dati.append(campo.name, campo.value);
+    });
+    return dati;
+  }
+
+  function valida(riga) {
+    let ok = true;
+    riga.querySelectorAll("[required]").forEach(function (campo) {
+      if (!campo.value.trim()) {
+        campo.classList.add("is-invalid");
+        ok = false;
+      } else {
+        campo.classList.remove("is-invalid");
+      }
+    });
+    return ok;
+  }
+
+  async function salva(riga) {
+    const avviso = riga.querySelector(".messaggio");
+    avviso.textContent = "";
+
+    if (!valida(riga)) {
+      avviso.textContent = "Compila tutti i campi.";
+      return;
+    }
+
+    const nuova = riga.classList.contains("nuova");
+    const url   = nuova ? zona.dataset.urlCrea : riga.dataset.urlModifica;
+
+    riga.classList.add("in-corso");
+    try {
+      const risposta = await fetch(url, {
+        method: "POST",
+        body: campi(riga),
+        headers: { "X-Requested-With": "fetch" }
+      });
+      const esito = await risposta.json();
+
+      if (!risposta.ok || !esito.ok) {
+        avviso.textContent = esito.errore || "Salvataggio non riuscito.";
+        return;
+      }
+
+      // Una riga nuova non ha ancora la vista compatta completa.
+      // Ricostruirla qui significherebbe duplicare in JavaScript la logica
+      // del template: ricaricare costa una richiesta ed e' sempre corretto.
+      if (nuova) { location.reload(); return; }
+
+      // Riga esistente: aggiorna solo i pezzi che il server ha rimandato.
+      Object.entries(esito.corso).forEach(function ([chiave, valore]) {
+        const posto = riga.querySelector('[data-campo="' + chiave + '"]');
+        if (posto) posto.textContent = valore;
+      });
+      riga.classList.remove("aperta");
+
+    } catch (errore) {
+      avviso.textContent = "Errore di rete: riprova.";
+    } finally {
+      riga.classList.remove("in-corso");
+    }
+  }
+
+  async function elimina(riga) {
+    // Una riga mai salvata si toglie e basta: nel database non c'e' niente.
+    if (riga.classList.contains("nuova")) {
+      riga.remove();
+      if (!lista.children.length) vuota.classList.remove("d-none");
+      return;
+    }
+
+    riga.classList.add("in-corso");
+    try {
+      const risposta = await fetch(riga.dataset.urlElimina, {
+        method: "POST",
+        headers: { "X-Requested-With": "fetch" }
+      });
+      const esito = await risposta.json();
+
+      if (risposta.ok && esito.ok) {
+        riga.remove();
+        if (!lista.children.length) location.reload();
+      } else {
+        riga.classList.remove("in-corso");
+        riga.querySelector(".messaggio").textContent =
+          esito.errore || "Eliminazione non riuscita.";
+      }
+    } catch (errore) {
+      riga.classList.remove("in-corso");
+    }
+  }
+})();
+</script>
+{% endblock %}

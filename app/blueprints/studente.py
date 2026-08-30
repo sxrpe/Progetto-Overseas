@@ -4,10 +4,10 @@ ROUTE PREVISTE
     GET  /studente/pratiche                     elenco delle PROPRIE pratiche
     GET  /studente/pratiche/nuova               form di creazione
     POST /studente/pratiche/nuova               creazione
-    POST /studente/pratiche/<id>/esami          aggiunta riga di mapping
-    POST /studente/pratiche/<id>/date           date effettive di arrivo/partenza
-    POST /studente/pratiche/<id>/documenti      caricamento di un documento
-
+    GET   /studente/pratiche/<id>/la                 mappatura del piano
+    POST  /studente/pratiche/<id>/la/mapping         aggiunta riga      -> JSON
+    POST  /studente/la/mapping/<id_map>/modifica     modifica riga      -> JSON
+    POST  /studente/la/mapping/<id_map>/elimina      eliminazione riga  -> JSON
 LE DUE REGOLE DA NON VIOLARE MAI IN QUESTO FILE
 
     1. Il filtro sta NELLA QUERY, non nel template.
@@ -25,21 +25,35 @@ ATTENZIONE ALLE QUERY A CASCATA
     anticipato:
         .options(selectinload(Pratica.istituto), selectinload(Pratica.docente))
     Per accorgertene: metti SQL_ECHO=1 nel .env e conta le righe che scorrono.
+
+
+
+
+    200   ok                 il valore predefinito
+    400   Bad Request        i dati che mi hai mandato non vanno bene
+    403   Forbidden          non hai i permessi
+    404   Not Found          non esiste
+    500   Internal Error     ho sbagliato io
 """
 import datetime as dt
+
+
 import sqlalchemy as sa
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import (Blueprint, abort, flash, jsonify, redirect,
+                   render_template, request, url_for)
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
-from app.enums import Ruolo, Periodo
+from app.enums import Ruolo, Periodo, EsitoDocumento
 from app.extensions import db
-from app.models import Pratica, Istituto, Utente
-from app.security import ruolo_richiesto
+from app.models import Pratica, Istituto, Utente, CorsoInterno,CorsoEsterno, LearningAgreement, Equivalenza
+from app.security import ruolo_richiesto, esigi_accesso, esigi_modifica
 
 studente_bp = Blueprint("studente", __name__)
 
-
+# ============================================================================
+# PAGINA DI BASE : ELENCO DELLE PRATICHE
+# ============================================================================
 @studente_bp.route("/pratiche", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
@@ -62,15 +76,18 @@ def elenco_pratiche():
 
     return render_template("studente/elenco.html", pratiche=pratiche)
 
+# ============================================================================
+# MODULO : CREAZIONE NUOVA PRATICA
+# ============================================================================
 def _intero(nome_campo):
-    #"""Legge un campo del form come intero, None se manca o non è un numero."""
+    """Legge un campo del form come intero, None se manca o non è un numero."""
     try:
         return int(request.form.get(nome_campo, ""))
     except ValueError:
         return None
 
 def _dati_modulo():
-    #"""Le liste che servono a riempire i menu del modulo,da settembre in poi l'anno accademico è quello nuovo """
+    """Le liste che servono a riempire i menu del modulo,da settembre in poi l'anno accademico è quello nuovo """
     oggi = dt.date.today()
     anno_corrente = oggi.year if oggi.month >= 9 else oggi.year - 1
     return {
@@ -92,7 +109,7 @@ def nuova_pratica():
 
     if request.method == "GET":
        # "**_dati_modulo() esegue e spacchetta il dizionario "
-        return render_template("studente/nuova.html",**_dati_modulo(),
+        return render_template("studente/nuova_pratica.html",**_dati_modulo(),
                                anno_selected=None, periodo_selected=None,istituto_selected=None, docente_selected=None)
     else:
         #"Gestiamo l'invio del FORM"
@@ -111,7 +128,7 @@ def nuova_pratica():
         if None in (anno_selected, periodo_selected,
                     istituto_selected, docente_selected):
             flash("Compila tutti i campi.", "danger")
-            return render_template("studente/nuova.html",**_dati_modulo(),periodo_selected=periodo_selected, istituto_selected=istituto_selected, anno_selected=anno_selected, docente_selected=docente_selected)
+            return render_template("studente/nuova_pratica.html",**_dati_modulo(),periodo_selected=periodo_selected, istituto_selected=istituto_selected, anno_selected=anno_selected, docente_selected=docente_selected)
 
         #"Formattazione del nome della Pratica : sa.func.count() = count(*)"
         quante = db.session.scalar(
@@ -138,7 +155,7 @@ def nuova_pratica():
         except sa.exc.IntegrityError:
             db.session.rollback()
             flash("Non è stato possibile creare la pratica: dati non validi.", "danger")
-            return render_template("studente/nuova.html", **_dati_modulo(),
+            return render_template("studente/nuova_pratica.html", **_dati_modulo(),
                                    anno_selected=anno_selected,
                                    periodo_selected=periodo_selected,
                                    istituto_selected=istituto_selected,
@@ -146,7 +163,7 @@ def nuova_pratica():
         except sa.exc.DatabaseError as errore:
             db.session.rollback()
             flash(str(errore.orig).split("\n")[0], "danger")
-            return render_template("studente/nuova.html", **_dati_modulo(),
+            return render_template("studente/nuova_pratica.html", **_dati_modulo(),
                                    anno_selected=anno_selected,
                                    periodo_selected=periodo_selected,
                                    istituto_selected=istituto_selected,
@@ -155,4 +172,208 @@ def nuova_pratica():
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
 
+# ============================================================================
+# MAPPING : UTILITY
+# ============================================================================
+def _bozza_aperta(pratica: Pratica):
+    """La versione del piano ancora in attesa di decisione, o None.
 
+       Ce n'e' al massimo una per pratica: lo garantisce l'indice unico
+       parziale uq_la_una_sola_in_attesa.
+       """
+    versione = db.session.scalar(
+        sa.select(LearningAgreement)
+        .where(LearningAgreement.pratica_id == pratica.id)
+        .where(LearningAgreement.esito == EsitoDocumento.IN_ATTESA)
+    )
+    return versione
+def _corso_esterno_dello_studente(id_map):
+    """Carica il corso esterno, verificando che appartenga a chi lo chiede."""
+    corso = db.session.get(CorsoEsterno, id_map)
+    if corso is None:
+        abort(404)
+    pratica = corso.learning_agreement.pratica
+    esigi_accesso(pratica)      # 404 se non e' sua
+    esigi_modifica(pratica)     # 403 se lo stato non lo permette
+    return corso
+
+def _pratica_dello_studente(id_pratica):
+    pratica = db.session.get(Pratica, id_pratica)
+    if pratica is None:
+        abort(404)
+    esigi_accesso(pratica)
+    esigi_modifica(pratica)
+    return pratica
+# ============================================================================
+# PAGINA DI BASE : MAPPING LEARNIN E AGREEMENTS
+# ============================================================================
+
+# La pagina della mappatura.
+@studente_bp.route("/pratiche/<int:id_pratica>/la", methods=["GET"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def nuovo_la(id_pratica: int):
+
+    pratica = _pratica_dello_studente(id_pratica)
+    #Carichiamo la lista dei Corsi Interni
+    corsi_interni = db.session.scalars(
+        sa.select(CorsoInterno).order_by(CorsoInterno.codice)
+    ).all()
+
+    versione = _bozza_aperta(pratica)
+
+    # Gestione nessuna bozza: crearne una nuova
+    if versione is None:
+        # Prende il numero dell'ultima versione il or 0 consente se la risposta é NULL = None
+        # in python None or 0 scrive 0
+        ultimo = db.session.scalar(
+            sa.select(sa.func.max(LearningAgreement.numero_versione))
+            .where(LearningAgreement.pratica_id == pratica.id)
+        ) or 0
+
+        # Creiamo un'ogetto della Bozza
+        versione = LearningAgreement(
+            pratica_id=pratica.id,
+            numero_versione=ultimo + 1,
+        )
+        db.session.add(versione)
+        db.session.commit()
+        return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
+                               corsi=[], corsi_interni=corsi_interni)
+    else:
+        corsi = db.session.scalars(
+            sa.select(CorsoEsterno)
+            .where(CorsoEsterno.learning_agreement_id == versione.id)
+            .options(
+                selectinload(CorsoEsterno.equivalenze)
+                .selectinload(Equivalenza.corso_interno)
+            )
+            .order_by(CorsoEsterno.codice)
+        ).all()
+        # {{ c.equivalenze[0].corso_interno.codice }} sono due selection load annidati
+        return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
+                               corsi=corsi,corsi_interni=corsi_interni)
+
+
+# ============================================================================
+# GESTIONE MAPPING : CREAZIONE
+# ============================================================================
+
+
+# Aggiunge una riga di mapping. Risponde JSON.
+@studente_bp.route("/pratiche/<int:id_pratica>/la/mapping", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def crea_map(id_pratica: int):
+    pratica = _pratica_dello_studente(id_pratica)
+
+    codice = request.form.get("codice", "").strip().upper()
+    titolo = request.form.get("titolo", "").strip()
+    crediti = _intero("crediti")
+    corso_interno_id = _intero("corso_interno_id")
+    # ritorniamo un json perche la richiesta non ricarica la pagina, é lo script di javascript che attende una risposta alla richiesta senza ricaricare la paginas
+    if not codice or not titolo or crediti is None or corso_interno_id is None:
+        return jsonify(ok=False, errore="Compila tutti i campi."), 400
+
+    if crediti < 1 or crediti > 60:
+        return jsonify(ok=False, errore="I CFU devono essere fra 1 e 60."), 400
+
+
+    versione = _bozza_aperta(pratica)
+    if versione is None:
+        return jsonify(ok=False, errore="Nessuna bozza aperta per questa pratica."), 400
+
+    corso_esterno = CorsoEsterno(
+        codice=codice,
+        titolo=titolo,
+        crediti=crediti,
+        learning_agreement_id=versione.id,
+    )
+    # Appendiamo l'aggiunta dell'equivalenza, perche l'id del corso esterno non esiste ancora, esiste quando facciamo il commit,
+    # cosi stiamo appendendo l'aggiunta al database
+    corso_esterno.equivalenze.append(
+        Equivalenza(corso_interno_id=corso_interno_id)
+    )
+    db.session.add(corso_esterno)
+
+    try:
+        db.session.commit()
+        return jsonify(ok=True)
+    except sa.exc.IntegrityError:
+        db.session.rollback()
+        return jsonify(ok=False, errore="Codice già presente in questo piano."), 400
+    except sa.exc.DatabaseError as errore:
+        db.session.rollback()
+        return jsonify(ok=False, errore=str(errore.orig).split("\n")[0]), 400
+
+
+# ============================================================================
+# GESTIONE MAPPING : MODIFICA
+# ============================================================================
+
+
+# Modifica una riga esistente. Risponde JSON.
+@studente_bp.route("/la/mapping/<int:id_map>/modifica", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def modifica_map(id_map: int):
+    corso_esterno =  _corso_esterno_dello_studente(id_map)
+
+    codice = request.form.get("codice", "").strip().upper()
+    titolo = request.form.get("titolo", "").strip()
+    crediti = _intero("crediti")
+    corso_interno_id = _intero("corso_interno_id")
+    # ritorniamo un json perche la richiesta non ricarica la pagina, é lo script di javascript che attende una risposta alla richiesta senza ricaricare la paginas
+    if not codice or not titolo or crediti is None or corso_interno_id is None:
+        return jsonify(ok=False, errore="Compila tutti i campi."), 400
+
+    if crediti < 1 or crediti > 60:
+        return jsonify(ok=False, errore="I CFU devono essere fra 1 e 60."), 400
+
+    corso_esterno.titolo = titolo
+    corso_esterno.crediti = crediti
+    corso_esterno.codice = codice
+
+    # Sostituisce l'equivalenza: clear() cancella la riga vecchia grazie al
+    # cascade delete-orphan, append aggiunge quella nuova.
+    corso_esterno.equivalenze.clear()
+    corso_esterno.equivalenze.append(Equivalenza(corso_interno_id=corso_interno_id))
+
+   # nessun sesison.ad, abbiamo gia gli oggetti nel database dobbiamo solo modificarli col commit
+
+    try:
+
+        interno = db.session.get(CorsoInterno, corso_interno_id)
+        db.session.commit()
+
+        return jsonify(ok=True, corso={
+            "codice": corso_esterno.codice,
+            "titolo": corso_esterno.titolo,
+            "crediti": corso_esterno.crediti,
+            "equivalenza": f"→ {interno.codice}",
+        })
+    except sa.exc.IntegrityError:
+        db.session.rollback()
+        return jsonify(ok=False, errore="Codice già presente in questo piano."), 400
+    except sa.exc.DatabaseError as errore:
+        db.session.rollback()
+        return jsonify(ok=False, errore=str(errore.orig).split("\n")[0]), 400
+
+# ============================================================================
+# GESTIONE MAPPING : ELIMINAZIONE
+# ============================================================================
+
+# Elimina una riga. Risponde JSON.
+@studente_bp.route("/la/mapping/<int:id_map>/elimina", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def elimina_map(id_map: int):
+    corso = _corso_esterno_dello_studente(id_map)
+    db.session.delete(corso)
+    #Facciamo solo il controllo per l'errore del possibile trigger, nessun integrity error
+    try:
+        db.session.commit()
+        return jsonify(ok=True)
+    except sa.exc.DatabaseError as errore:
+        db.session.rollback()
+        return jsonify(ok=False, errore=str(errore.orig).split("\n")[0]), 400
