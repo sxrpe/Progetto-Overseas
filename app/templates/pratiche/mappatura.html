@@ -205,20 +205,18 @@
     Questo e' un form vero, non fetch: e' l'azione che cambia lo stato della
     pratica e deve funzionare anche se il JavaScript non parte.
   #}
-  {#
-  <form method="post"
-        action="{{ url_for('studente.invia_la', id_pratica=pratica.id) }}">
-    <button type="submit" class="btn btn-success w-100 py-2"
-            {% if not corsi %}disabled{% endif %}>
-      Genera il documento e invia al docente referente
-    </button>
+    <a href="{{ url_for('studente.documento_la', id_pratica=pratica.id) }}"
+       class="btn btn-success w-100 py-2 {% if not corsi %}disabled{% endif %}">
+      Vai alla firma del documento
+    </a>
+
     {% if not corsi %}
       <p class="form-text text-center mb-0">
         Serve almeno un insegnamento con la sua equivalenza.
       </p>
     {% endif %}
-  </form>
-  #}
+
+
 </div>
 
 {# ---------- MODELLO DELLA RIGA NUOVA ---------- #}
@@ -233,7 +231,7 @@
 
 {% endblock %}
 
-
+<!--TODO studiare lo script-->
 {% block script %}
 <script>
 (function () {

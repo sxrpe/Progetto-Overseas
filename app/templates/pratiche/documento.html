@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block titolo %}Firma del Learning Agreement{% endblock %}
+
+{% block contenuto %}
+
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 mb-1">Firma e invio</h1>
+    <p class="text-body-secondary mb-0 small">
+      {{ pratica.codice_pratica }} · versione {{ versione.numero_versione }} ·
+      {{ corsi | length }} insegnamenti
+    </p>
+  </div>
+  <a href="{{ url_for('studente.nuovo_la', id_pratica=pratica.id) }}"
+     class="btn btn-outline-secondary">Torna alla mappatura</a>
+</div>
+
+<div class="passi mb-4">
+  <span class="passo"><b>1</b> Compila la mappatura</span>
+  <span class="passo"><b>2</b> Scarica il documento</span>
+  <span class="passo"><b>3</b> Firmalo</span>
+  <span class="passo"><b>4</b> Ricaricalo e invia</span>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header fw-semibold d-flex align-items-center flex-wrap gap-2">
+    Anteprima del documento
+    <a href="{{ url_for('studente.documento_pdf', id_pratica=pratica.id, scarica=1) }}"
+       class="btn btn-sm btn-primary ms-auto">Scarica il PDF</a>
+  </div>
+  <iframe src="{{ url_for('studente.documento_pdf', id_pratica=pratica.id) }}"
+          style="width:100%; height:70vh; border:0; display:block"
+          title="Anteprima del Learning Agreement"></iframe>
+</div>
+
+<div class="card">
+  <div class="card-header fw-semibold">Carica il documento firmato</div>
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label for="documento" class="form-label">Documento firmato (PDF, max 5 MB)</label>
+        <input type="file" class="form-control" id="documento"
+               name="documento" accept=".pdf" required>
+        <div class="form-text">
+          Caricando il documento la pratica passa in valutazione e il piano
+          non sarà più modificabile fino alla decisione del docente.
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success">
+        Carica e invia al docente referente
+      </button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

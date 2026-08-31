@@ -40,15 +40,16 @@ import datetime as dt
 
 import sqlalchemy as sa
 from flask import (Blueprint, abort, flash, jsonify, redirect,
-                   render_template, request, url_for)
+                   render_template, request, url_for, Response)
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
-from app.enums import Ruolo, Periodo, EsitoDocumento
+from app.enums import Ruolo, Periodo, EsitoDocumento, StatoPratica
 from app.extensions import db
 from app.models import Pratica, Istituto, Utente, CorsoInterno,CorsoEsterno, LearningAgreement, Equivalenza
 from app.security import ruolo_richiesto, esigi_accesso, esigi_modifica
-
+from app.documenti import (DocumentoNonValido, elimina_documento,
+                           genera_pdf_la, salva_documento)
 studente_bp = Blueprint("studente", __name__)
 
 # ============================================================================
@@ -377,3 +378,77 @@ def elimina_map(id_map: int):
     except sa.exc.DatabaseError as errore:
         db.session.rollback()
         return jsonify(ok=False, errore=str(errore.orig).split("\n")[0]), 400
+
+
+
+# ============================================================================
+# GESTIONE DOCUMENTO : CREAZIONE
+# ============================================================================
+
+def _corsi_della_versione(versione):
+    """Ritorna """
+    return db.session.scalars(
+        sa.select(CorsoEsterno)
+        .where(CorsoEsterno.learning_agreement_id == versione.id)
+        .options(selectinload(CorsoEsterno.equivalenze)
+                 .selectinload(Equivalenza.corso_interno))
+        .order_by(CorsoEsterno.codice)
+    ).all()
+
+# ============================================================================
+# GESTIONE DOCUMENTO : CREAZIONE
+# ============================================================================
+@studente_bp.route("/pratiche/<int:id_pratica>/la/documento.pdf")
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def documento_pdf(id_pratica: int):
+    pratica = _pratica_dello_studente(id_pratica)
+    versione = _bozza_aperta(pratica)
+    if versione is None:
+        abort(404)
+
+    pdf = genera_pdf_la(pratica, versione, _corsi_della_versione(versione))
+
+    modo = "attachment" if request.args.get("scarica") else "inline"
+    nome = f"LA-{pratica.codice_pratica}-v{versione.numero_versione}.pdf"
+
+    return Response(pdf, mimetype="application/pdf", headers={
+        "Content-Disposition": f'{modo}; filename="{nome}"',
+    })
+
+# Con GET ritorniamo la pagina di visualizzazione  del documento, con POST gestiamo la richiesta di creazione del documento
+@studente_bp.route("/pratiche/<int:id_pratica>/la/documento", methods=["GET", "POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def documento_la(id_pratica: int):
+    pratica = _pratica_dello_studente(id_pratica)
+    versione = _bozza_aperta(pratica)
+    if versione is None:
+        abort(404)
+    # FIXME finire il post che non funziona il caricamento
+    if request.method == "POST":
+        try:
+            nome_disco, nome_originale = salva_documento(request.files.get("documento"))
+
+        except DocumentoNonValido as errore:
+            flash(str(errore), "danger")
+            return redirect(url_for("studente.documento_la", id_pratica=pratica.id))
+
+        versione.file_path = nome_disco
+        versione.nome_file_originale = nome_originale
+        pratica.stato = StatoPratica.ATTESA_APPROVAZIONE_LA
+
+        try:
+            db.session.commit()
+        except sa.exc.DatabaseError as errore:
+            db.session.rollback()
+            elimina_documento(nome_disco)      # il file era gia' su disco
+            flash(str(errore.orig).split("\n")[0], "danger")
+            return redirect(url_for("studente.documento_la", id_pratica=pratica.id))
+
+        flash("Learning Agreement inviato al docente referente.", "success")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    return render_template("pratiche/documento.html",
+                           pratica=pratica, versione=versione,
+                           corsi=_corsi_della_versione(versione))
