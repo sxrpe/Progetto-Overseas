@@ -15,10 +15,10 @@ UNA PAGINA PER CONCETTO, NON UNA PER RUOLO
 """
 
 import sqlalchemy as sa
-from flask import Blueprint, abort, render_template
+from flask import Blueprint, abort, render_template, send_file
 from sqlalchemy.orm import selectinload
 from flask_login import login_required
-
+from app.documenti import percorso_documento
 
 
 from app.extensions import db
@@ -92,3 +92,22 @@ def dettaglio(id_pratica: int):
         versioni=versioni,
         corrente=pratica.learning_agreement_corrente,
     )
+
+
+
+@pratiche_bp.route("/la/<int:id_versione>/documento")
+@login_required
+def scarica_la(id_versione: int):
+    """Scarica il Learning Agreement firmato, a chi ha diritto di vederlo."""
+    versione = db.session.get(LearningAgreement, id_versione)
+    if versione is None or not versione.file_path:
+        abort(404)
+
+    esigi_accesso(versione.pratica)      # studente titolare, docente, ufficio
+
+    nome = (f"LA-{versione.pratica.codice_pratica}"
+            f"-v{versione.numero_versione}.pdf")
+
+    return send_file(percorso_documento(versione.file_path),
+                     mimetype="application/pdf",
+                     as_attachment=True, download_name=nome)

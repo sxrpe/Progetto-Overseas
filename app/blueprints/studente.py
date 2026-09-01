@@ -240,7 +240,7 @@ def nuovo_la(id_pratica: int):
         db.session.add(versione)
         db.session.commit()
         return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
-                               corsi=[], corsi_interni=corsi_interni)
+                               corsi=[], corsi_interni=corsi_interni, sola_lettura=False)
     else:
         corsi = db.session.scalars(
             sa.select(CorsoEsterno)
@@ -253,7 +253,7 @@ def nuovo_la(id_pratica: int):
         ).all()
         # {{ c.equivalenze[0].corso_interno.codice }} sono due selection load annidati
         return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
-                               corsi=corsi,corsi_interni=corsi_interni)
+                               corsi=corsi,corsi_interni=corsi_interni, sola_lettura=False)
 
 
 # ============================================================================
@@ -436,6 +436,7 @@ def documento_la(id_pratica: int):
 
         versione.file_path = nome_disco
         versione.nome_file_originale = nome_originale
+        db.session.flush()
         pratica.stato = StatoPratica.ATTESA_APPROVAZIONE_LA
 
         try:

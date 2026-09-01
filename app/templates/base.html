@@ -62,6 +62,11 @@
               <a class="nav-link" href="{{ url_for('studente.elenco_pratiche') }}">
                 Le mie pratiche</a>
             </li>
+          {% elif current_user.e_docente %}
+            <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('docente.elenco_pratiche') }}">
+                Pratiche di cui sono referente</a>
+            </li>
           {% endif %}
 
           {#
@@ -70,11 +75,7 @@
             url_for() con un BuildError, e la pagina non si apre piu'.
 
 
-          {% elif current_user.e_docente %}
-            <li class="nav-item">
-              <a class="nav-link" href="{{ url_for('docente.elenco') }}">
-                Pratiche di cui sono referente</a>
-            </li>
+
           {% elif current_user.e_ufficio %}
             <li class="nav-item">
               <a class="nav-link" href="{{ url_for('ufficio.cruscotto') }}">

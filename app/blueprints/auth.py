@@ -86,6 +86,7 @@ def login():
         # un "open redirect", cioe' un link del vostro dominio che porta a
         # una pagina di accesso contraffatta.
 
+        # TODO Vedere ocme avviene il redirect se accedi ad una risorsa non loggata
         destinazione = request.args.get("next", "")
         #1. L'utente (non collegato) apre    /studente/pratiche
         #2. @login_required lo blocca e costruisce il redirect:

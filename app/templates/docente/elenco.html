@@ -1,22 +1,140 @@
 {#
-  PRATICHE DI CUI IL DOCENTE E' REFERENTE  ->  FASE 7.4
+  ELENCO DELLE PRATICHE DI CUI IL DOCENTE E' REFERENTE.
 
-  Come per l'elenco dello studente: il filtro sta NELLA QUERY,
-      .where(Pratica.docente_id == current_user.id)
-  non nel template.
+  VARIABILI ATTESE DALLA ROTTA
+      da_decidere   lista di {"pratica": ..., "giorni": ...}  in cima
+      le_altre      stessa forma, sotto
 
-  ORDINAMENTO UTILE
-    Per stato, mettendo per prime quelle che aspettano una sua decisione.
-    Un docente apre questa pagina per sapere cosa deve fare, non per
-    consultare un archivio.
+  IL CRITERIO
+      Non un elenco neutro ma due gruppi: quello che aspetta una decisione
+      e tutto il resto. La colonna dei giorni di attesa e' la piu' utile
+      della pagina: e' l'unica che dice cosa rischia di essere dimenticato.
+
+  I GIORNI SONO CALCOLATI NELLA ROTTA
+      Jinja non fa conti sulle date. La rotta arriva con il numero gia'
+      pronto, il template lo colora e basta.
 #}
 
 {% extends "base.html" %}
 {% from "_frammenti.html" import stato_pratica %}
 
-{% block titolo %}Pratiche da seguire{% endblock %}
+{% block titolo %}Pratiche da valutare{% endblock %}
+
+
+{#
+  MACRO DELLA TABELLA.
+  Le due sezioni hanno le stesse colonne: scriverle due volte significherebbe
+  correggerle due volte.
+#}
+{% macro tabella(righe, mostra_attesa) %}
+<div class="table-responsive">
+  <table class="table align-middle mb-0">
+    <thead>
+      <tr>
+        <th>Studente</th>
+        <th>Pratica</th>
+        <th>Destinazione</th>
+        <th>Stato</th>
+        {% if mostra_attesa %}<th>In attesa da</th>{% endif %}
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in righe %}
+        <tr>
+          <td>
+            {{ r.pratica.studente.nome_completo }}<br>
+            <span class="text-body-secondary small font-monospace">
+              {{ r.pratica.studente.matricola }}</span>
+          </td>
+          <td>
+            <span class="font-monospace">{{ r.pratica.codice_pratica }}</span><br>
+            <span class="text-body-secondary small">
+              {{ r.pratica.anno_accademico }}/{{ r.pratica.anno_accademico + 1 }}</span>
+          </td>
+          <td>
+            {{ r.pratica.istituto.nome }}<br>
+            <span class="text-body-secondary small">
+              {{ r.pratica.istituto.citta }}, {{ r.pratica.istituto.paese }}</span>
+          </td>
+          <td>{{ stato_pratica(r.pratica.stato) }}</td>
+
+          {% if mostra_attesa %}
+            <td class="font-monospace">
+              {% if r.giorni is none %}
+                <span class="text-body-secondary">—</span>
+              {% elif r.giorni >= 7 %}
+                <span class="text-danger fw-semibold">{{ r.giorni }} giorni</span>
+              {% else %}
+                {{ r.giorni }} {{ 'giorno' if r.giorni == 1 else 'giorni' }}
+              {% endif %}
+            </td>
+          {% endif %}
+
+          <td class="text-end">
+            <div class="d-inline-flex gap-2">
+              <a href="{{ url_for('pratiche.dettaglio', id_pratica=r.pratica.id) }}"
+                 class="btn btn-sm btn-outline-secondary">Apri pratica</a>
+              {% if r.pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA %}
+                <a href="{{ url_for('docente.valuta_la', id_pratica=r.pratica.id) }}"
+                   class="btn btn-sm btn-primary">Valuta il piano</a>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
 
 {% block contenuto %}
-  <h1 class="h4 mb-3">Pratiche di cui sono referente</h1>
-  <div class="alert alert-secondary">Da implementare in Fase 7.4.</div>
+
+<div class="mb-4">
+  <h1 class="h3 mb-1">Pratiche di cui sei referente</h1>
+  <p class="text-body-secondary mb-0 small">
+    {{ current_user.nome_completo }} ·
+    {{ da_decidere | length + le_altre | length }} in totale
+  </p>
+</div>
+
+{# ---------- GRUPPO 1: RICHIEDONO UNA DECISIONE ---------- #}
+<div class="card mb-4 {% if da_decidere %}border-warning{% endif %}">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    Richiedono una tua decisione
+    <span class="badge text-bg-secondary">{{ da_decidere | length }}</span>
+  </div>
+
+  {% if da_decidere %}
+    {{ tabella(da_decidere, true) }}
+  {% else %}
+    <div class="card-body text-center py-4">
+      <p class="text-body-secondary mb-0 small">
+        Nessuna pratica in attesa di una tua valutazione.
+      </p>
+    </div>
+  {% endif %}
+</div>
+
+{# ---------- GRUPPO 2: TUTTE LE ALTRE ---------- #}
+<div class="card">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    Le altre
+    <span class="badge text-bg-secondary">{{ le_altre | length }}</span>
+    <span class="fw-normal text-body-secondary small ms-1">
+      nessuna azione richiesta</span>
+  </div>
+
+  {% if le_altre %}
+    {{ tabella(le_altre, false) }}
+  {% else %}
+    <div class="card-body text-center py-4">
+      <p class="text-body-secondary mb-0 small">
+        Non ci sono altre pratiche.
+      </p>
+    </div>
+  {% endif %}
+</div>
+
 {% endblock %}

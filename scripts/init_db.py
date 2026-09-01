@@ -109,7 +109,6 @@ def main() -> None:
             print(f"  [ok] Tabelle create: {', '.join(tabelle)}")
         else:
             print("  [!]  Nessuna tabella creata: app/models.py e' ancora vuoto.")
-            print("       E' normale finche' non hai fatto la Fase 4.")
 
         esegui_sql_extra()
         print("Fatto. Passo successivo:  python -m scripts.seed")

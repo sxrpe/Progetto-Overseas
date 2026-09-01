@@ -64,79 +64,84 @@
           <span class="text-danger">nessuna equivalenza</span>
         {% endif %}
       </span>
-      <button type="button" class="btn btn-sm btn-outline-secondary azione-modifica">
-        Modifica
-      </button>
+      {% if not sola_lettura %}
+        <button type="button" class="btn btn-sm btn-outline-secondary azione-modifica">
+          Modifica
+        </button>
+      {% endif %}
     {% else %}
       <span class="fw-semibold flex-grow-1 text-body-secondary">
         Nuovo insegnamento
       </span>
     {% endif %}
-    <button type="button" class="btn btn-sm btn-outline-danger azione-elimina">
-      {% if c %}Elimina{% else %}Scarta{% endif %}
-    </button>
+    {% if not sola_lettura %}
+      <button type="button" class="btn btn-sm btn-outline-danger azione-elimina">
+        {% if c %}Elimina{% else %}Scarta{% endif %}
+      </button>
+    {% endif %}
   </div>
 
   {# ---------- pannello espandibile ---------- #}
-  <div class="riga-espansa">
-    <div class="riga-espansa-interno">
-      <div class="border-top p-3">
-        <div class="row g-2">
+  {% if not sola_lettura %}
+    <div class="riga-espansa">
+      <div class="riga-espansa-interno">
+        <div class="border-top p-3">
+          <div class="row g-2">
 
-          <div class="col-6 col-md-3">
-            <label class="form-label small mb-1">Codice estero</label>
-            <input type="text" class="form-control form-control-sm"
-                   name="codice" value="{{ c.codice if c else '' }}"
-                   maxlength="40" required>
-          </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small mb-1">Codice estero</label>
+              <input type="text" class="form-control form-control-sm"
+                     name="codice" value="{{ c.codice if c else '' }}"
+                     maxlength="40" required>
+            </div>
 
-          <div class="col-12 col-md-6">
-            <label class="form-label small mb-1">Titolo dell'insegnamento</label>
-            <input type="text" class="form-control form-control-sm"
-                   name="titolo" value="{{ c.titolo if c else '' }}"
-                   maxlength="200" required>
-          </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">Titolo dell'insegnamento</label>
+              <input type="text" class="form-control form-control-sm"
+                     name="titolo" value="{{ c.titolo if c else '' }}"
+                     maxlength="200" required>
+            </div>
 
-          <div class="col-6 col-md-3">
-            <label class="form-label small mb-1">CFU esteri</label>
-            <input type="number" class="form-control form-control-sm"
-                   name="crediti" value="{{ c.crediti if c else '' }}"
-                   min="1" max="60" required>
-          </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small mb-1">CFU esteri</label>
+              <input type="number" class="form-control form-control-sm"
+                     name="crediti" value="{{ c.crediti if c else '' }}"
+                     min="1" max="60" required>
+            </div>
 
-          <div class="col-12">
-            <label class="form-label small mb-1">Riconosciuto come</label>
-            <select class="form-select form-select-sm" name="corso_interno_id" required>
-              <option value="" {% if not c or not c.equivalenze %}selected{% endif %}>
-                Scegli un insegnamento di Ca' Foscari&hellip;
-              </option>
-              {% for ci in corsi_interni %}
-                <option value="{{ ci.id }}"
-                  {% if c and c.equivalenze
-                        and c.equivalenze[0].corso_interno_id == ci.id %}selected{% endif %}>
-                  {{ ci.codice }} — {{ ci.titolo }} ({{ ci.crediti }} CFU)
+            <div class="col-12">
+              <label class="form-label small mb-1">Riconosciuto come</label>
+              <select class="form-select form-select-sm" name="corso_interno_id" required>
+                <option value="" {% if not c or not c.equivalenze %}selected{% endif %}>
+                  Scegli un insegnamento di Ca' Foscari&hellip;
                 </option>
-              {% endfor %}
-            </select>
-          </div>
+                {% for ci in corsi_interni %}
+                  <option value="{{ ci.id }}"
+                    {% if c and c.equivalenze
+                          and c.equivalenze[0].corso_interno_id == ci.id %}selected{% endif %}>
+                    {{ ci.codice }} — {{ ci.titolo }} ({{ ci.crediti }} CFU)
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
 
-          <div class="col-12 d-flex gap-2 align-items-center flex-wrap">
-            <button type="button" class="btn btn-sm btn-primary azione-conferma">
-              Conferma
-            </button>
-            {% if c %}
-              <button type="button" class="btn btn-sm btn-outline-secondary azione-annulla">
-                Annulla
+            <div class="col-12 d-flex gap-2 align-items-center flex-wrap">
+              <button type="button" class="btn btn-sm btn-primary azione-conferma">
+                Conferma
               </button>
-            {% endif %}
-            <span class="small text-danger ms-2 messaggio" role="alert"></span>
-          </div>
+              {% if c %}
+                <button type="button" class="btn btn-sm btn-outline-secondary azione-annulla">
+                  Annulla
+                </button>
+              {% endif %}
+              <span class="small text-danger ms-2 messaggio" role="alert"></span>
+            </div>
 
+          </div>
         </div>
       </div>
     </div>
-  </div>
-
+  {% endif %}
 </li>
 {% endmacro %}
 
@@ -179,9 +184,11 @@
       Insegnamenti pianificati
       <span class="fw-normal text-body-secondary">({{ corsi | length }})</span>
     </h2>
-    <button type="button" class="btn btn-primary btn-sm" id="btn-aggiungi">
-      Aggiungi insegnamento
-    </button>
+    {% if not sola_lettura %}
+      <button type="button" class="btn btn-primary btn-sm" id="btn-aggiungi">
+        Aggiungi insegnamento
+      </button>
+    {% endif %}
   </div>
 
   <ul class="list-unstyled mb-3" id="lista-corsi">
@@ -205,10 +212,67 @@
     Questo e' un form vero, non fetch: e' l'azione che cambia lo stato della
     pratica e deve funzionare anche se il JavaScript non parte.
   #}
-    <a href="{{ url_for('studente.documento_la', id_pratica=pratica.id) }}"
-       class="btn btn-success w-100 py-2 {% if not corsi %}disabled{% endif %}">
-      Vai alla firma del documento
-    </a>
+    {% if sola_lettura %}
+
+  {# ---------- IL DOCUMENTO FIRMATO ---------- #}
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">Documento firmato dallo studente</div>
+    <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+      {% if versione.file_path %}
+        <div>
+          <span class="font-monospace">{{ versione.nome_file_originale }}</span><br>
+          <span class="text-body-secondary small">
+            caricato il {{ versione.data_caricamento.strftime('%d/%m/%Y') }}</span>
+        </div>
+        <a href="{{ url_for('pratiche.scarica_la', id_versione=versione.id) }}"
+           class="btn btn-outline-secondary ms-auto">Scarica il documento</a>
+      {% else %}
+        <span class="text-danger small">Nessun documento caricato.</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------- LA DECISIONE ---------- #}
+  <div class="card border-primary">
+    <div class="card-header fw-semibold">La tua decisione</div>
+    <div class="card-body">
+
+      <form method="post"
+            action="{{ url_for('docente.approva_la', id_pratica=pratica.id) }}"
+            class="mb-4">
+        <button type="submit" class="btn btn-primary">Approva il piano</button>
+        <span class="form-text ms-2">
+          Il piano diventa quello valido. La verifica pre-partenza spetta
+          poi all'ufficio.
+        </span>
+      </form>
+
+      <form method="post"
+            action="{{ url_for('docente.rifiuta_la', id_pratica=pratica.id) }}">
+        <label for="motivazione" class="form-label small fw-semibold">
+          Motivazione del rifiuto
+        </label>
+        <textarea class="form-control mb-2" id="motivazione" name="motivazione"
+                  rows="3" required
+                  placeholder="Spiega allo studente cosa non va nel piano..."></textarea>
+        <button type="submit" class="btn btn-outline-danger">
+          Rifiuta e rimanda allo studente
+        </button>
+        <span class="form-text ms-2">
+          La pratica torna in compilazione. Il piano approvato in precedenza,
+          se c'era, resta valido.
+        </span>
+      </form>
+
+    </div>
+  </div>
+
+{% else %}
+  <a href="{{ url_for('studente.documento_la', id_pratica=pratica.id) }}"
+     class="btn btn-success w-100 py-2 {% if not corsi %}disabled{% endif %}">
+    Vai alla firma del documento
+  </a>
+{% endif %}
 
     {% if not corsi %}
       <p class="form-text text-center mb-0">
@@ -225,142 +289,146 @@
   e i suoi campi non vengono inviati da nessun form. E' un ritaglio di HTML
   in attesa, che lo script clona quando serve.
 #}
-<template id="modello-riga">
-  {{ riga_corso(none, corsi_interni) }}
-</template>
+  {% if not sola_lettura %}
+    <template id="modello-riga">
+      {{ riga_corso(none, corsi_interni) }}
+    </template>
+  {% endif %}
 
 {% endblock %}
 
 <!--TODO studiare lo script-->
 {% block script %}
-<script>
-(function () {
-  "use strict";
+  {% if not sola_lettura %}
+    <script>
+  (function () {
+    "use strict";
 
-  const zona  = document.getElementById("mappatura");
-  const lista = document.getElementById("lista-corsi");
-  const vuota = document.getElementById("lista-vuota");
+    const zona  = document.getElementById("mappatura");
+    const lista = document.getElementById("lista-corsi");
+    const vuota = document.getElementById("lista-vuota");
 
-  // ------------------------------------------------------------------
-  // UN SOLO ASCOLTATORE PER TUTTA LA LISTA.
-  // Registrandolo sul contenitore invece che su ogni pulsante, funziona
-  // anche sulle righe aggiunte dopo, che al momento della registrazione
-  // non esistevano ancora.
-  // ------------------------------------------------------------------
-  lista.addEventListener("click", function (evento) {
-    const riga = evento.target.closest(".riga");
-    if (!riga) return;
+    // ------------------------------------------------------------------
+    // UN SOLO ASCOLTATORE PER TUTTA LA LISTA.
+    // Registrandolo sul contenitore invece che su ogni pulsante, funziona
+    // anche sulle righe aggiunte dopo, che al momento della registrazione
+    // non esistevano ancora.
+    // ------------------------------------------------------------------
+    lista.addEventListener("click", function (evento) {
+      const riga = evento.target.closest(".riga");
+      if (!riga) return;
 
-    if (evento.target.closest(".azione-modifica")) riga.classList.add("aperta");
-    if (evento.target.closest(".azione-annulla"))  riga.classList.remove("aperta");
-    if (evento.target.closest(".azione-conferma")) salva(riga);
-    if (evento.target.closest(".azione-elimina"))  elimina(riga);
-  });
-
-  document.getElementById("btn-aggiungi").addEventListener("click", function () {
-    const modello = document.getElementById("modello-riga");
-    lista.appendChild(modello.content.cloneNode(true));
-    vuota.classList.add("d-none");
-    const nuova = lista.lastElementChild;
-    nuova.querySelector("input").focus();
-    nuova.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  });
-
-  // Raccoglie tutti i campi con un attributo name dentro la riga.
-  function campi(riga) {
-    const dati = new FormData();
-    riga.querySelectorAll("[name]").forEach(function (campo) {
-      dati.append(campo.name, campo.value);
+      if (evento.target.closest(".azione-modifica")) riga.classList.add("aperta");
+      if (evento.target.closest(".azione-annulla"))  riga.classList.remove("aperta");
+      if (evento.target.closest(".azione-conferma")) salva(riga);
+      if (evento.target.closest(".azione-elimina"))  elimina(riga);
     });
-    return dati;
-  }
 
-  function valida(riga) {
-    let ok = true;
-    riga.querySelectorAll("[required]").forEach(function (campo) {
-      if (!campo.value.trim()) {
-        campo.classList.add("is-invalid");
-        ok = false;
-      } else {
-        campo.classList.remove("is-invalid");
-      }
+    document.getElementById("btn-aggiungi").addEventListener("click", function () {
+      const modello = document.getElementById("modello-riga");
+      lista.appendChild(modello.content.cloneNode(true));
+      vuota.classList.add("d-none");
+      const nuova = lista.lastElementChild;
+      nuova.querySelector("input").focus();
+      nuova.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
-    return ok;
-  }
 
-  async function salva(riga) {
-    const avviso = riga.querySelector(".messaggio");
-    avviso.textContent = "";
-
-    if (!valida(riga)) {
-      avviso.textContent = "Compila tutti i campi.";
-      return;
+    // Raccoglie tutti i campi con un attributo name dentro la riga.
+    function campi(riga) {
+      const dati = new FormData();
+      riga.querySelectorAll("[name]").forEach(function (campo) {
+        dati.append(campo.name, campo.value);
+      });
+      return dati;
     }
 
-    const nuova = riga.classList.contains("nuova");
-    const url   = nuova ? zona.dataset.urlCrea : riga.dataset.urlModifica;
-
-    riga.classList.add("in-corso");
-    try {
-      const risposta = await fetch(url, {
-        method: "POST",
-        body: campi(riga),
-        headers: { "X-Requested-With": "fetch" }
+    function valida(riga) {
+      let ok = true;
+      riga.querySelectorAll("[required]").forEach(function (campo) {
+        if (!campo.value.trim()) {
+          campo.classList.add("is-invalid");
+          ok = false;
+        } else {
+          campo.classList.remove("is-invalid");
+        }
       });
-      const esito = await risposta.json();
+      return ok;
+    }
 
-      if (!risposta.ok || !esito.ok) {
-        avviso.textContent = esito.errore || "Salvataggio non riuscito.";
+    async function salva(riga) {
+      const avviso = riga.querySelector(".messaggio");
+      avviso.textContent = "";
+
+      if (!valida(riga)) {
+        avviso.textContent = "Compila tutti i campi.";
         return;
       }
 
-      // Una riga nuova non ha ancora la vista compatta completa.
-      // Ricostruirla qui significherebbe duplicare in JavaScript la logica
-      // del template: ricaricare costa una richiesta ed e' sempre corretto.
-      if (nuova) { location.reload(); return; }
+      const nuova = riga.classList.contains("nuova");
+      const url   = nuova ? zona.dataset.urlCrea : riga.dataset.urlModifica;
 
-      // Riga esistente: aggiorna solo i pezzi che il server ha rimandato.
-      Object.entries(esito.corso).forEach(function ([chiave, valore]) {
-        const posto = riga.querySelector('[data-campo="' + chiave + '"]');
-        if (posto) posto.textContent = valore;
-      });
-      riga.classList.remove("aperta");
+      riga.classList.add("in-corso");
+      try {
+        const risposta = await fetch(url, {
+          method: "POST",
+          body: campi(riga),
+          headers: { "X-Requested-With": "fetch" }
+        });
+        const esito = await risposta.json();
 
-    } catch (errore) {
-      avviso.textContent = "Errore di rete: riprova.";
-    } finally {
-      riga.classList.remove("in-corso");
-    }
-  }
+        if (!risposta.ok || !esito.ok) {
+          avviso.textContent = esito.errore || "Salvataggio non riuscito.";
+          return;
+        }
 
-  async function elimina(riga) {
-    // Una riga mai salvata si toglie e basta: nel database non c'e' niente.
-    if (riga.classList.contains("nuova")) {
-      riga.remove();
-      if (!lista.children.length) vuota.classList.remove("d-none");
-      return;
-    }
+        // Una riga nuova non ha ancora la vista compatta completa.
+        // Ricostruirla qui significherebbe duplicare in JavaScript la logica
+        // del template: ricaricare costa una richiesta ed e' sempre corretto.
+        if (nuova) { location.reload(); return; }
 
-    riga.classList.add("in-corso");
-    try {
-      const risposta = await fetch(riga.dataset.urlElimina, {
-        method: "POST",
-        headers: { "X-Requested-With": "fetch" }
-      });
-      const esito = await risposta.json();
+        // Riga esistente: aggiorna solo i pezzi che il server ha rimandato.
+        Object.entries(esito.corso).forEach(function ([chiave, valore]) {
+          const posto = riga.querySelector('[data-campo="' + chiave + '"]');
+          if (posto) posto.textContent = valore;
+        });
+        riga.classList.remove("aperta");
 
-      if (risposta.ok && esito.ok) {
-        riga.remove();
-        if (!lista.children.length) location.reload();
-      } else {
+      } catch (errore) {
+        avviso.textContent = "Errore di rete: riprova.";
+      } finally {
         riga.classList.remove("in-corso");
-        riga.querySelector(".messaggio").textContent =
-          esito.errore || "Eliminazione non riuscita.";
       }
-    } catch (errore) {
-      riga.classList.remove("in-corso");
     }
-  }
-})();
-</script>
+
+    async function elimina(riga) {
+      // Una riga mai salvata si toglie e basta: nel database non c'e' niente.
+      if (riga.classList.contains("nuova")) {
+        riga.remove();
+        if (!lista.children.length) vuota.classList.remove("d-none");
+        return;
+      }
+
+      riga.classList.add("in-corso");
+      try {
+        const risposta = await fetch(riga.dataset.urlElimina, {
+          method: "POST",
+          headers: { "X-Requested-With": "fetch" }
+        });
+        const esito = await risposta.json();
+
+        if (risposta.ok && esito.ok) {
+          riga.remove();
+          if (!lista.children.length) location.reload();
+        } else {
+          riga.classList.remove("in-corso");
+          riga.querySelector(".messaggio").textContent =
+            esito.errore || "Eliminazione non riuscita.";
+        }
+      } catch (errore) {
+        riga.classList.remove("in-corso");
+      }
+    }
+  })();
+  </script>
+  {% endif %}
 {% endblock %}
