@@ -9,105 +9,262 @@ PERCHE' UN BLUEPRINT SUO
     E' anche il centro dell'applicazione: da qui si raggiungono tutte le
     altre azioni, ed e' la schermata che si vede di piu' nel video.
 
-UNA PAGINA PER CONCETTO, NON UNA PER RUOLO
-    Tre pagine quasi identiche significherebbero correggere ogni cosa tre
-    volte, e due volte su tre dimenticarsene.
+ROTTE
+    GET  /pratiche/<id>              il dettaglio
+    GET  /pratiche/<id>/versioni     le versioni vecchie, come frammento HTML
+    GET  /pratiche/la/<id>/documento download del Learning Agreement firmato
+
+PERCHE' LE VERSIONI VECCHIE STANNO IN UNA ROTTA A PARTE
+    Il dettaglio carica solo la versione che conta adesso, con i suoi corsi
+    e le loro equivalenze. Le versioni precedenti sono storia: interessano
+    di rado, e caricare tutti i loro corsi a ogni apertura della pagina
+    significherebbe pagare sempre per un'informazione che quasi nessuno
+    guarda. La rotta le restituisce come pezzo di HTML gia' disegnato, che
+    lo script infila nella pagina al primo clic.
 """
 
 import sqlalchemy as sa
 from flask import Blueprint, abort, render_template, send_file
+from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
-from flask_login import login_required
+
 from app.documenti import percorso_documento
-
-
+from app.enums import EsitoDocumento, Ruolo, StatoPratica
 from app.extensions import db
-from app.models import CorsoEsterno, LearningAgreement, Pratica
+from app.models import CorsoEsterno, Equivalenza, LearningAgreement, Pratica
 from app.security import esigi_accesso
 
-pratiche_bp = Blueprint("pratiche", __name__)
+pratiche_bp = Blueprint("pratiche", __name__, url_prefix="/pratiche")
 
-"Stiamo dando alla tabella delle rotte che si crea flask che accetta solo interi se non ce intero rifiuta la rotta, il comando Blueprint() serve appunto perche crea questa tabella"
-@pratiche_bp.route("/<int:id_pratica>")
-@login_required
-def dettaglio(id_pratica: int):
-    """Mostra una pratica, a chi ha diritto di vederla.
 
-    LE PRIME TRE RIGHE SONO LO SCHEMA DA RIPETERE OVUNQUE
+# ============================================================================
+# UTILITY
+# ============================================================================
 
-        pratica = db.session.get(Pratica, id_pratica)
-        if pratica is None:
-            abort(404)
-        esigi_accesso(pratica)
+def _carica_pratica(id_pratica: int) -> Pratica:
+    """Le tre righe da ripetere ovunque: carica, gestisci il 404, verifica.
 
-    La prima carica. La seconda gestisce l'id inventato. La terza verifica
-    che chi chiede abbia diritto: studente solo le proprie, docente solo
-    quelle di cui e' referente, ufficio tutte.
-
-    PERCHE' NON C'E' @ruolo_richiesto QUI
-        Perche' tutti e tre i ruoli possono vedere questa pagina. Il
-        controllo non e' sul TIPO di utente ma sul LEGAME fra quell'utente e
-        quella pratica, ed e' esattamente cio' che fa esigi_accesso.
-
-        Non serve nemmeno @login_required: esigi_accesso, su un utente
-        anonimo, risponde comunque 404.
-
-    PERCHE' esigi_accesso RISPONDE 404 E NON 403
-        Un 403 direbbe "questa pratica esiste ma non e' tua". Provando gli
-        identificatori uno per uno si scoprirebbe quante pratiche ci sono e
-        quali numeri sono in uso. Il 404 non distingue fra "non esiste" e
-        "non e' tua", e non lascia trapelare niente.
-
-    IL CARICAMENTO ANTICIPATO
-        La pagina mostra istituto, docente, tutte le versioni del piano con
-        dentro i corsi, le loro equivalenze e i voti. Senza selectinload
-        sarebbero decine di query separate: e' il problema N+1.
-
-        selectinload(A).selectinload(B) segue la catena di un livello in
-        piu': "caricami i corsi di ogni versione, e per ogni corso anche le
-        sue equivalenze".
+    esigi_accesso risponde 404 e non 403 anche quando la pratica esiste ma
+    non e' tua: un 403 confermerebbe l'esistenza, e provando i numeri uno
+    per uno si scoprirebbe quante pratiche ci sono nel sistema.
     """
     pratica = db.session.get(Pratica, id_pratica)
     if pratica is None:
         abort(404)
     esigi_accesso(pratica)
+    return pratica
 
-    # Tutte le versioni del piano, con il loro contenuto, in poche query.
-    versioni = db.session.scalars(
-        sa.select(LearningAgreement)
-        .where(LearningAgreement.pratica_id == pratica.id)
-        .options(
-            selectinload(LearningAgreement.corsi_esterni).selectinload(
-                CorsoEsterno.esame
-            ),
-            selectinload(LearningAgreement.corsi_esterni)
-            .selectinload(CorsoEsterno.equivalenze),
-        )
-        .order_by(LearningAgreement.numero_versione.desc())
+
+def _versione_in_attesa(pratica: Pratica):
+    """La versione su cui il docente non ha ancora deciso, o None."""
+    for versione in pratica.learning_agreements:
+        if versione.esito == EsitoDocumento.IN_ATTESA:
+            return versione
+    return None
+
+
+def _versione_approvata(pratica: Pratica):
+    """La versione approvata con numero piu' alto: il piano che vale."""
+    migliore = None
+    for versione in pratica.learning_agreements:
+        if versione.esito != EsitoDocumento.APPROVATO:
+            continue
+        if migliore is None or versione.numero_versione > migliore.numero_versione:
+            migliore = versione
+    return migliore
+
+
+def _corsi_della_versione(versione):
+    """I corsi della versione, con equivalenze e corsi interni gia' caricati.
+
+    Due selectinload in catena perche' il template attraversa due relazioni:
+    dal corso alle sue equivalenze, e da ogni equivalenza al corso interno.
+    Senza, una query per ogni riga: e' il problema N+1.
+    """
+    if versione is None:
+        return []
+    return db.session.scalars(
+        sa.select(CorsoEsterno)
+        .where(CorsoEsterno.learning_agreement_id == versione.id)
+        .options(selectinload(CorsoEsterno.equivalenze)
+                 .selectinload(Equivalenza.corso_interno))
+        .order_by(CorsoEsterno.codice)
     ).all()
+
+
+def _cosa_fare(pratica: Pratica):
+    """Chi deve muoversi adesso, e cosa deve fare.
+
+    Restituisce (tocca_a_me, testo).
+
+    STA QUI E NON NEL TEMPLATE
+        Sono sei stati per tre ruoli: diciotto casi. Scritti come catena di
+        {% if %} in Jinja diventano illeggibili, e la logica di processo non
+        e' compito del template. Qui si legge, si corregge in un posto solo,
+        e domani si puo' anche provare con un test.
+    """
+    ruolo = current_user.ruolo
+    sono_lo_studente = pratica.studente_id == current_user.id
+    sono_il_docente = pratica.docente_id == current_user.id
+    stato = pratica.stato
+
+    if stato == StatoPratica.APERTA:
+        if sono_lo_studente:
+            return True, ("Componi il Learning Agreement indicando gli esami "
+                          "che seguirai all'estero e le loro equivalenze, poi "
+                          "invialo al docente referente.")
+        return False, (f"{pratica.studente.nome_completo} sta compilando il "
+                       f"Learning Agreement.")
+
+    if stato == StatoPratica.ATTESA_APPROVAZIONE_LA:
+        if _versione_in_attesa(pratica) is not None:
+            if sono_il_docente:
+                return True, ("Lo studente ha inviato il piano firmato: "
+                              "approvalo, oppure rifiutalo indicando il motivo.")
+            if sono_lo_studente:
+                return False, (f"Il piano è in valutazione presso "
+                               f"{pratica.docente.nome_completo}.")
+            return False, (f"In attesa della valutazione di "
+                           f"{pratica.docente.nome_completo}.")
+        # Nessuna versione in attesa ma lo stato non e' avanzato: il docente
+        # ha approvato e la palla passa all'ufficio.
+        if ruolo == Ruolo.UFFICIO:
+            return True, ("Il docente ha approvato il piano: registra la "
+                          "verifica pre-partenza per far partire lo studente.")
+        return False, ("Piano approvato dal docente. L'ufficio Overseas deve "
+                       "registrare la verifica pre-partenza.")
+
+    if stato == StatoPratica.PRE_PARTENZA_COMPLETATA:
+        if sono_lo_studente:
+            return True, ("Documentazione verificata: puoi partire. Al tuo "
+                          "arrivo registra la data di inizio della mobilità.")
+        return False, (f"{pratica.studente.nome_completo} può partire e deve "
+                       f"registrare la data di inizio.")
+
+    if stato == StatoPratica.MOBILITA_IN_CORSO:
+        if sono_lo_studente:
+            return True, ("Al rientro registra la data di fine e carica il "
+                          "Transcript of Records rilasciato dall'ateneo "
+                          "ospitante. Durante la mobilità puoi proporre una "
+                          "modifica al piano.")
+        return False, "Mobilità in corso. Nessun intervento richiesto."
+
+    if stato == StatoPratica.IN_RICONOSCIMENTO_ESAMI:
+        if sono_lo_studente:
+            return True, ("Inserisci voto e data di superamento per ciascun "
+                          "esame sostenuto, poi il docente li valuterà.")
+        if sono_il_docente:
+            return True, ("Valuta gli esami sostenuti: puoi accettarli o "
+                          "rifiutarli uno per uno.")
+        return False, ("In attesa del riconoscimento degli esami da parte del "
+                       "docente referente.")
+
+    if stato == StatoPratica.CHIUSA:
+        return False, ("Pratica chiusa. Non è più modificabile da nessuno: "
+                       "lo impedisce un vincolo del database.")
+
+    return False, ""
+
+
+# ============================================================================
+# DETTAGLIO
+# ============================================================================
+
+@pratiche_bp.route("/<int:id_pratica>")
+@login_required
+def dettaglio(id_pratica: int):
+    """Mostra una pratica, a chi ha diritto di vederla.
+
+    QUALE VERSIONE DEL PIANO SI MOSTRA
+        Quella che conta adesso: se c'e' una proposta in attesa e' lei, la
+        decisione riguarda quella; altrimenti l'ultima approvata, che e' il
+        piano operativo. Le altre restano nascoste dietro "Altre versioni".
+    """
+    pratica = _carica_pratica(id_pratica)
+
+    in_attesa = _versione_in_attesa(pratica)
+    approvata = _versione_approvata(pratica)
+    versione = in_attesa or approvata
+
+    tocca_a_me, avviso = _cosa_fare(pratica)
+
+    # Quante versioni restano fuori: serve solo a decidere se disegnare il
+    # pulsante "Altre versioni". Un count, non un caricamento.
+    quante_versioni = len(pratica.learning_agreements)
+    altre = quante_versioni - (1 if versione is not None else 0)
 
     return render_template(
         "pratiche/dettaglio.html",
         pratica=pratica,
-        versioni=versioni,
-        corrente=pratica.learning_agreement_corrente,
+        versione=versione,
+        corsi=_corsi_della_versione(versione),
+        e_proposta=in_attesa is not None,
+        approvata=approvata,
+        altre_versioni=altre,
+        tocca_a_me=tocca_a_me,
+        avviso=avviso,
     )
 
 
+@pratiche_bp.route("/<int:id_pratica>/versioni")
+@login_required
+def versioni_vecchie(id_pratica: int):
+    """Le versioni precedenti, come frammento di HTML gia' disegnato.
+
+    Non restituisce JSON: restituisce il pezzo di pagina. Cosi' la logica di
+    presentazione resta in un template invece di essere riscritta in
+    JavaScript, e lo script deve solo infilare il testo nel contenitore.
+    """
+    pratica = _carica_pratica(id_pratica)
+
+    in_attesa = _versione_in_attesa(pratica)
+    mostrata = in_attesa or _versione_approvata(pratica)
+    id_mostrata = mostrata.id if mostrata else None
+
+    versioni = db.session.scalars(
+        sa.select(LearningAgreement)
+        .where(LearningAgreement.pratica_id == pratica.id)
+        .options(selectinload(LearningAgreement.corsi_esterni)
+                 .selectinload(CorsoEsterno.equivalenze)
+                 .selectinload(Equivalenza.corso_interno))
+        .order_by(LearningAgreement.numero_versione.desc())
+    ).all()
+
+    return render_template(
+        "pratiche/_versioni_vecchie.html",
+        pratica=pratica,
+        versioni=[v for v in versioni if v.id != id_mostrata],
+    )
+
+
+# ============================================================================
+# DOWNLOAD DEL DOCUMENTO FIRMATO
+# ============================================================================
 
 @pratiche_bp.route("/la/<int:id_versione>/documento")
 @login_required
 def scarica_la(id_versione: int):
-    """Scarica il Learning Agreement firmato, a chi ha diritto di vederlo."""
+    """Scarica il Learning Agreement firmato, a chi ha diritto di vederlo.
+
+    E' QUESTA ROTTA A GIUSTIFICARE uploads/ FUORI DA static/
+        Dentro static/ Flask servirebbe il file a chiunque ne conosca
+        l'indirizzo, senza chiedere chi sia. Cosi' invece si passa di qui,
+        e qui esigi_accesso verifica identita' e appartenenza prima di
+        consegnare qualsiasi cosa.
+
+    Il nome con cui il file viene scaricato lo genera l'applicazione: quello
+    scelto dall'utente resta nel database solo per essere mostrato.
+    """
     versione = db.session.get(LearningAgreement, id_versione)
     if versione is None or not versione.file_path:
         abort(404)
 
-    esigi_accesso(versione.pratica)      # studente titolare, docente, ufficio
+    esigi_accesso(versione.pratica)
 
     nome = (f"LA-{versione.pratica.codice_pratica}"
             f"-v{versione.numero_versione}.pdf")
 
     return send_file(percorso_documento(versione.file_path),
                      mimetype="application/pdf",
-                     as_attachment=True, download_name=nome)
+                     as_attachment=True,
+                     download_name=nome)

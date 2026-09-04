@@ -67,8 +67,10 @@
               <a class="nav-link" href="{{ url_for('docente.elenco_pratiche') }}">
                 Pratiche di cui sono referente</a>
             </li>
+          {% elif current_user.is_authenticated and current_user.ruolo == Ruolo.UFFICIO %}
+            <a class="nav-link {% if request.endpoint == 'ufficio.elenco_pratiche' %}active{% endif %}"
+               href="{{ url_for('ufficio.elenco_pratiche') }}">Pratiche</a>
           {% endif %}
-
           {#
             Le voci per ruolo si accendono man mano che le rotte esistono.
             Scommentare una riga PRIMA che la rotta esista fa fallire

@@ -1,48 +1,60 @@
 {#
   MAPPATURA DEGLI ESAMI — una versione del Learning Agreement.
 
+  QUESTA PAGINA SERVE A TRE RUOLI
+      studente   compila e modifica le righe, poi va alla firma
+      docente    guarda e decide: approva oppure rifiuta con motivazione
+      ufficio    guarda e basta: verifica la completezza, non il merito
+
+  Due flag decidono cosa compare:
+
+      sola_lettura   false -> comandi di modifica, riga nuova, JavaScript
+                     true  -> nessun comando, elenco statico
+
+      puo_decidere   true  -> la scheda con Approva e Rifiuta
+                     (ha senso solo insieme a sola_lettura)
+
+  CHI PASSA COSA
+      studente.nuovo_la     sola_lettura=False  puo_decidere=False
+      docente.valuta_la     sola_lettura=True   puo_decidere=True
+      ufficio.vedi_la       sola_lettura=True   puo_decidere=False
+
   VARIABILI ATTESE DALLA ROTTA
       pratica         la Pratica
-      versione        il LearningAgreement in bozza su cui si lavora
+      versione        il LearningAgreement mostrato
       corsi           i CorsoEsterno di quella versione, con le equivalenze
-      corsi_interni   il catalogo Ca' Foscari, per il menu del riconoscimento
+      corsi_interni   il catalogo Ca' Foscari (vuoto in sola lettura)
 
-  ROTTE CHE QUESTA PAGINA CHIAMA (da creare in studente.py)
-      studente.crea_corso     (id_pratica)   POST  -> JSON
-      studente.modifica_map (id_corso)     POST  -> JSON
-      studente.elimina_map  (id_corso)     POST  -> JSON
-      studente.invia_la       (id_pratica)   POST  -> redirect
-      pratiche.dettaglio      (id_pratica)   GET
-
-  COME FUNZIONA
+  COME FUNZIONA IN MODIFICA
       Ogni riga e' un CorsoEsterno gia' salvato. "Modifica" espande il
       pannello, "Conferma" manda un POST con fetch e aggiorna la vista
-      compatta senza ricaricare la pagina.
-
-      La riga nuova nasce dal <template> in fondo: e' identica alle altre ma
-      senza data-id e gia' aperta. La macro qui sotto genera entrambe.
+      compatta senza ricaricare la pagina. La riga nuova nasce dal
+      <template> in fondo: e' identica alle altre ma senza data-id e gia'
+      aperta. La macro qui sotto genera entrambe.
 
   ATTENZIONE
-      Tutti i pulsanti di questa lista sono type="button": non sono dentro
-      un form e non devono inviare niente. L'unico form vero e' quello di
-      invio del Learning Agreement in fondo, che funziona anche senza
-      JavaScript.
+      Tutti i pulsanti della lista sono type="button": non stanno dentro un
+      form e non devono inviare niente. I form veri sono solo quelli della
+      decisione del docente, in fondo.
 #}
 
 {% extends "base.html" %}
 
+
 {#
   MACRO DELLA RIGA.
+
   Con c valorizzato produce una riga esistente; con c a none produce la riga
   nuova, gia' aperta e senza gli indirizzi delle rotte (li ricevera' dal
   server al primo salvataggio).
 
-  corsi_interni va passato esplicitamente: le macro non vedono le variabili
-  del template che le chiama, solo quelle registrate in jinja_env.globals.
+  corsi_interni e sola_lettura vanno passati esplicitamente: le macro non
+  vedono le variabili del template che le chiama, solo quelle registrate in
+  jinja_env.globals.
 #}
-{% macro riga_corso(c, corsi_interni) %}
+{% macro riga_corso(c, corsi_interni, sola_lettura=false) %}
 <li class="riga card mb-2 {% if not c %}aperta nuova{% endif %}"
-    {% if c %}
+    {% if c and not sola_lettura %}
       data-id="{{ c.id }}"
       data-url-modifica="{{ url_for('studente.modifica_map', id_map=c.id) }}"
       data-url-elimina="{{ url_for('studente.elimina_map', id_map=c.id) }}"
@@ -60,10 +72,14 @@
         {% if c.equivalenze %}
           <span class="text-success">&rarr;</span>
           {{ c.equivalenze[0].corso_interno.codice }}
+          <span class="text-body-secondary">
+            {{ c.equivalenze[0].corso_interno.titolo }}
+            ({{ c.equivalenze[0].corso_interno.crediti }} CFU)</span>
         {% else %}
           <span class="text-danger">nessuna equivalenza</span>
         {% endif %}
       </span>
+
       {% if not sola_lettura %}
         <button type="button" class="btn btn-sm btn-outline-secondary azione-modifica">
           Modifica
@@ -74,6 +90,7 @@
         Nuovo insegnamento
       </span>
     {% endif %}
+
     {% if not sola_lettura %}
       <button type="button" class="btn btn-sm btn-outline-danger azione-elimina">
         {% if c %}Elimina{% else %}Scarta{% endif %}
@@ -81,7 +98,7 @@
     {% endif %}
   </div>
 
-  {# ---------- pannello espandibile ---------- #}
+  {# ---------- pannello espandibile: solo in modifica ---------- #}
   {% if not sola_lettura %}
     <div class="riga-espansa">
       <div class="riga-espansa-interno">
@@ -142,15 +159,23 @@
       </div>
     </div>
   {% endif %}
+
 </li>
 {% endmacro %}
 
-{# ====================================================================================== #}
 
 {% block titolo %}Learning Agreement {{ pratica.codice_pratica }}{% endblock %}
 
 
 {% block contenuto %}
+
+{#
+  Normalizzo i due flag: se una rotta si dimentica di passarli, Jinja li
+  vedrebbe come Undefined e le condizioni darebbero risultati casuali.
+#}
+{% set sola_lettura = sola_lettura | default(false) %}
+{% set puo_decidere = puo_decidere | default(false) %}
+
 
 {# ---------- INTESTAZIONE ---------- #}
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
@@ -160,23 +185,33 @@
       {{ pratica.codice_pratica }} ·
       {{ pratica.istituto.nome }}, {{ pratica.istituto.citta }} ·
       versione {{ versione.numero_versione }}
+      {% if sola_lettura %}
+        <br>{{ pratica.studente.nome_completo }}
+        <span class="font-monospace">{{ pratica.studente.matricola }}</span>
+      {% endif %}
     </p>
   </div>
   <a href="{{ url_for('pratiche.dettaglio', id_pratica=pratica.id) }}"
      class="btn btn-outline-secondary">Torna alla pratica</a>
 </div>
 
-{# ---------- I QUATTRO PASSI ---------- #}
-<div class="passi mb-4">
-  <span class="passo"><b>1</b> Compila la mappatura</span>
-  <span class="passo"><b>2</b> Scarica il documento</span>
-  <span class="passo"><b>3</b> Firmalo</span>
-  <span class="passo"><b>4</b> Ricaricalo e invia</span>
-</div>
+
+{# ---------- I QUATTRO PASSI: solo per chi li deve percorrere ---------- #}
+{% if not sola_lettura %}
+  <div class="passi mb-4">
+    <span class="passo"><b>1</b> Compila la mappatura</span>
+    <span class="passo"><b>2</b> Scarica il documento</span>
+    <span class="passo"><b>3</b> Firmalo</span>
+    <span class="passo"><b>4</b> Ricaricalo e invia</span>
+  </div>
+{% endif %}
+
 
 {# ---------- LA LISTA ---------- #}
 <div id="mappatura"
-     data-url-crea="{{ url_for('studente.crea_map', id_pratica=pratica.id) }}">
+     {% if not sola_lettura %}
+       data-url-crea="{{ url_for('studente.crea_map', id_pratica=pratica.id) }}"
+     {% endif %}>
 
   <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
     <h2 class="h6 mb-0 text-uppercase text-body-secondary"
@@ -193,242 +228,303 @@
 
   <ul class="list-unstyled mb-3" id="lista-corsi">
     {% for c in corsi %}
-      {{ riga_corso(c, corsi_interni) }}
+      {{ riga_corso(c, corsi_interni, sola_lettura) }}
     {% endfor %}
   </ul>
 
-  {# messaggio di lista vuota: il JS lo nasconde appena si aggiunge una riga #}
+  {# ---------- totali: utili a chi deve decidere ---------- #}
+  {% if sola_lettura and corsi %}
+    {% set ns = namespace(estero=0, interno=0) %}
+    {% for c in corsi %}
+      {% set ns.estero = ns.estero + c.crediti %}
+      {% for e in c.equivalenze %}
+        {% set ns.interno = ns.interno + e.corso_interno.crediti %}
+      {% endfor %}
+    {% endfor %}
+    <div class="card mb-3">
+      <div class="card-body py-2 d-flex gap-4 flex-wrap small">
+        <span><span class="text-body-secondary">CFU all'estero</span>
+          <span class="fw-semibold font-monospace ms-1">{{ ns.estero }}</span></span>
+        <span><span class="text-body-secondary">CFU riconosciuti</span>
+          <span class="fw-semibold font-monospace ms-1">{{ ns.interno }}</span></span>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ---------- lista vuota ---------- #}
   <div id="lista-vuota" class="card mb-3 {% if corsi %}d-none{% endif %}">
     <div class="card-body text-center py-4">
       <p class="text-body-secondary mb-0 small">
-        Nessun insegnamento inserito. Aggiungine almeno uno per poter inviare
-        il Learning Agreement.
+        {% if sola_lettura %}
+          Questa versione del piano non contiene nessun insegnamento.
+        {% else %}
+          Nessun insegnamento inserito. Aggiungine almeno uno per poter
+          inviare il Learning Agreement.
+        {% endif %}
       </p>
     </div>
   </div>
 
-  {# ---------- INVIO ---------- #}
-  {#
-    Questo e' un form vero, non fetch: e' l'azione che cambia lo stato della
-    pratica e deve funzionare anche se il JavaScript non parte.
-  #}
-    {% if sola_lettura %}
 
-  {# ---------- IL DOCUMENTO FIRMATO ---------- #}
-  <div class="card mb-3">
-    <div class="card-header fw-semibold">Documento firmato dallo studente</div>
-    <div class="card-body d-flex align-items-center gap-3 flex-wrap">
-      {% if versione.file_path %}
-        <div>
-          <span class="font-monospace">{{ versione.nome_file_originale }}</span><br>
-          <span class="text-body-secondary small">
-            caricato il {{ versione.data_caricamento.strftime('%d/%m/%Y') }}</span>
-        </div>
-        <a href="{{ url_for('pratiche.scarica_la', id_versione=versione.id) }}"
-           class="btn btn-outline-secondary ms-auto">Scarica il documento</a>
-      {% else %}
-        <span class="text-danger small">Nessun documento caricato.</span>
-      {% endif %}
-    </div>
-  </div>
+  {# =================================================================== #}
+  {#  IN FONDO: cosa si puo' fare, e dipende da chi guarda                #}
+  {# =================================================================== #}
 
-  {# ---------- LA DECISIONE ---------- #}
-  <div class="card border-primary">
-    <div class="card-header fw-semibold">La tua decisione</div>
-    <div class="card-body">
+  {% if not sola_lettura %}
 
-      <form method="post"
-            action="{{ url_for('docente.approva_la', id_pratica=pratica.id) }}"
-            class="mb-4">
-        <button type="submit" class="btn btn-primary">Approva il piano</button>
-        <span class="form-text ms-2">
-          Il piano diventa quello valido. La verifica pre-partenza spetta
-          poi all'ufficio.
-        </span>
-      </form>
-
-      <form method="post"
-            action="{{ url_for('docente.rifiuta_la', id_pratica=pratica.id) }}">
-        <label for="motivazione" class="form-label small fw-semibold">
-          Motivazione del rifiuto
-        </label>
-        <textarea class="form-control mb-2" id="motivazione" name="motivazione"
-                  rows="3" required
-                  placeholder="Spiega allo studente cosa non va nel piano..."></textarea>
-        <button type="submit" class="btn btn-outline-danger">
-          Rifiuta e rimanda allo studente
-        </button>
-        <span class="form-text ms-2">
-          La pratica torna in compilazione. Il piano approvato in precedenza,
-          se c'era, resta valido.
-        </span>
-      </form>
-
-    </div>
-  </div>
-
-{% else %}
-  <a href="{{ url_for('studente.documento_la', id_pratica=pratica.id) }}"
-     class="btn btn-success w-100 py-2 {% if not corsi %}disabled{% endif %}">
-    Vai alla firma del documento
-  </a>
-{% endif %}
-
+    {# ---------- STUDENTE: si va alla firma ---------- #}
+    <a href="{{ url_for('studente.documento_la', id_pratica=pratica.id) }}"
+       class="btn btn-success w-100 py-2 {% if not corsi %}disabled{% endif %}">
+      Vai alla firma del documento
+    </a>
     {% if not corsi %}
       <p class="form-text text-center mb-0">
         Serve almeno un insegnamento con la sua equivalenza.
       </p>
     {% endif %}
 
+  {% else %}
+
+    {# ---------- IL DOCUMENTO FIRMATO ---------- #}
+    {#
+      Il nome originale del file e' l'unico segnale che rivela a colpo
+      d'occhio se lo studente ha firmato una versione vecchia.
+    #}
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Documento firmato dallo studente</div>
+      <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+        {% if versione.file_path %}
+          <div>
+            <span class="font-monospace">{{ versione.nome_file_originale }}</span><br>
+            <span class="text-body-secondary small">
+              caricato il {{ versione.data_caricamento.strftime('%d/%m/%Y') }}</span>
+          </div>
+          <a href="{{ url_for('pratiche.scarica_la', id_versione=versione.id) }}"
+             class="btn btn-outline-secondary ms-auto">Scarica il documento</a>
+        {% else %}
+          <span class="text-danger small">
+            Nessun documento caricato per questa versione.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ---------- ESITO GIA' DECISO ---------- #}
+    {% if versione.esito != EsitoDocumento.IN_ATTESA %}
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">Esito</div>
+        <div class="card-body">
+          <p class="mb-1">
+            {{ EsitoDocumento.ETICHETTE[versione.esito] }}
+            {% if versione.data_decisione %}
+              <span class="text-body-secondary small">
+                il {{ versione.data_decisione.strftime('%d/%m/%Y') }}</span>
+            {% endif %}
+          </p>
+          {% if versione.motivazione %}
+            <p class="mb-0 small text-body-secondary">{{ versione.motivazione }}</p>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
+    {# ---------- DOCENTE: la decisione ---------- #}
+    {#
+      Due form separati e non annidati: in HTML un form dentro un form non
+      esiste. Il "required" sulla motivazione e' cio' che impedisce di
+      rifiutare senza spiegare, come chiede il requisito 4.
+    #}
+    {% if puo_decidere and versione.esito == EsitoDocumento.IN_ATTESA %}
+      <div class="card border-primary">
+        <div class="card-header fw-semibold">La tua decisione</div>
+        <div class="card-body">
+
+          <form method="post"
+                action="{{ url_for('docente.approva_la', id_pratica=pratica.id) }}"
+                class="mb-4">
+            <button type="submit" class="btn btn-primary">Approva il piano</button>
+            <span class="form-text ms-2">
+              Il piano diventa quello valido. La verifica pre-partenza spetta
+              poi all'ufficio Overseas.
+            </span>
+          </form>
+
+          <form method="post"
+                action="{{ url_for('docente.rifiuta_la', id_pratica=pratica.id) }}">
+            <label for="motivazione" class="form-label small fw-semibold">
+              Motivazione del rifiuto
+            </label>
+            <textarea class="form-control mb-2" id="motivazione" name="motivazione"
+                      rows="3" required
+                      placeholder="Spiega allo studente cosa non va nel piano…"></textarea>
+            <button type="submit" class="btn btn-outline-danger">
+              Rifiuta e rimanda allo studente
+            </button>
+            <span class="form-text ms-2">
+              La pratica torna in compilazione. Il piano approvato in
+              precedenza, se c'era, resta quello valido.
+            </span>
+          </form>
+
+        </div>
+      </div>
+    {% endif %}
+
+  {% endif %}
 
 </div>
+
 
 {# ---------- MODELLO DELLA RIGA NUOVA ---------- #}
 {#
   Il contenuto di <template> viene analizzato dal browser ma non disegnato,
-  e i suoi campi non vengono inviati da nessun form. E' un ritaglio di HTML
+  e i suoi campi non vengono inviati da nessun form: e' un ritaglio di HTML
   in attesa, che lo script clona quando serve.
 #}
-  {% if not sola_lettura %}
-    <template id="modello-riga">
-      {{ riga_corso(none, corsi_interni) }}
-    </template>
-  {% endif %}
+{% if not sola_lettura %}
+  <template id="modello-riga">
+    {{ riga_corso(none, corsi_interni, false) }}
+  </template>
+{% endif %}
 
 {% endblock %}
 
-<!--TODO studiare lo script-->
+
 {% block script %}
-  {% if not sola_lettura %}
-    <script>
-  (function () {
-    "use strict";
+{#
+  Lo script serve solo in modifica. In sola lettura non va nemmeno caricato:
+  cercherebbe btn-aggiungi, otterrebbe null, e null.addEventListener()
+  farebbe fallire tutto il JavaScript della pagina.
+#}
+{% if not sola_lettura | default(false) %}
+<script>
+(function () {
+  "use strict";
 
-    const zona  = document.getElementById("mappatura");
-    const lista = document.getElementById("lista-corsi");
-    const vuota = document.getElementById("lista-vuota");
+  const zona  = document.getElementById("mappatura");
+  const lista = document.getElementById("lista-corsi");
+  const vuota = document.getElementById("lista-vuota");
 
-    // ------------------------------------------------------------------
-    // UN SOLO ASCOLTATORE PER TUTTA LA LISTA.
-    // Registrandolo sul contenitore invece che su ogni pulsante, funziona
-    // anche sulle righe aggiunte dopo, che al momento della registrazione
-    // non esistevano ancora.
-    // ------------------------------------------------------------------
-    lista.addEventListener("click", function (evento) {
-      const riga = evento.target.closest(".riga");
-      if (!riga) return;
+  // ------------------------------------------------------------------
+  // UN SOLO ASCOLTATORE PER TUTTA LA LISTA.
+  // Registrandolo sul contenitore invece che su ogni pulsante, funziona
+  // anche sulle righe aggiunte dopo, che al momento della registrazione
+  // non esistevano ancora.
+  // ------------------------------------------------------------------
+  lista.addEventListener("click", function (evento) {
+    const riga = evento.target.closest(".riga");
+    if (!riga) return;
 
-      if (evento.target.closest(".azione-modifica")) riga.classList.add("aperta");
-      if (evento.target.closest(".azione-annulla"))  riga.classList.remove("aperta");
-      if (evento.target.closest(".azione-conferma")) salva(riga);
-      if (evento.target.closest(".azione-elimina"))  elimina(riga);
+    if (evento.target.closest(".azione-modifica")) riga.classList.add("aperta");
+    if (evento.target.closest(".azione-annulla"))  riga.classList.remove("aperta");
+    if (evento.target.closest(".azione-conferma")) salva(riga);
+    if (evento.target.closest(".azione-elimina"))  elimina(riga);
+  });
+
+  document.getElementById("btn-aggiungi").addEventListener("click", function () {
+    const modello = document.getElementById("modello-riga");
+    lista.appendChild(modello.content.cloneNode(true));
+    vuota.classList.add("d-none");
+    const nuova = lista.lastElementChild;
+    nuova.querySelector("input").focus();
+    nuova.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+
+  // Raccoglie tutti i campi con un attributo name dentro la riga.
+  function campi(riga) {
+    const dati = new FormData();
+    riga.querySelectorAll("[name]").forEach(function (campo) {
+      dati.append(campo.name, campo.value);
     });
+    return dati;
+  }
 
-    document.getElementById("btn-aggiungi").addEventListener("click", function () {
-      const modello = document.getElementById("modello-riga");
-      lista.appendChild(modello.content.cloneNode(true));
-      vuota.classList.add("d-none");
-      const nuova = lista.lastElementChild;
-      nuova.querySelector("input").focus();
-      nuova.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  function valida(riga) {
+    let ok = true;
+    riga.querySelectorAll("[required]").forEach(function (campo) {
+      if (!campo.value.trim()) {
+        campo.classList.add("is-invalid");
+        ok = false;
+      } else {
+        campo.classList.remove("is-invalid");
+      }
     });
+    return ok;
+  }
 
-    // Raccoglie tutti i campi con un attributo name dentro la riga.
-    function campi(riga) {
-      const dati = new FormData();
-      riga.querySelectorAll("[name]").forEach(function (campo) {
-        dati.append(campo.name, campo.value);
-      });
-      return dati;
+  async function salva(riga) {
+    const avviso = riga.querySelector(".messaggio");
+    avviso.textContent = "";
+
+    if (!valida(riga)) {
+      avviso.textContent = "Compila tutti i campi.";
+      return;
     }
 
-    function valida(riga) {
-      let ok = true;
-      riga.querySelectorAll("[required]").forEach(function (campo) {
-        if (!campo.value.trim()) {
-          campo.classList.add("is-invalid");
-          ok = false;
-        } else {
-          campo.classList.remove("is-invalid");
-        }
+    const nuova = riga.classList.contains("nuova");
+    const url   = nuova ? zona.dataset.urlCrea : riga.dataset.urlModifica;
+
+    riga.classList.add("in-corso");
+    try {
+      const risposta = await fetch(url, {
+        method: "POST",
+        body: campi(riga),
+        headers: { "X-Requested-With": "fetch" }
       });
-      return ok;
-    }
+      const esito = await risposta.json();
 
-    async function salva(riga) {
-      const avviso = riga.querySelector(".messaggio");
-      avviso.textContent = "";
-
-      if (!valida(riga)) {
-        avviso.textContent = "Compila tutti i campi.";
+      if (!risposta.ok || !esito.ok) {
+        avviso.textContent = esito.errore || "Salvataggio non riuscito.";
         return;
       }
 
-      const nuova = riga.classList.contains("nuova");
-      const url   = nuova ? zona.dataset.urlCrea : riga.dataset.urlModifica;
+      // Una riga nuova non ha ancora la vista compatta completa.
+      // Ricostruirla qui significherebbe duplicare in JavaScript la logica
+      // del template: ricaricare costa una richiesta ed e' sempre corretto.
+      if (nuova) { location.reload(); return; }
 
-      riga.classList.add("in-corso");
-      try {
-        const risposta = await fetch(url, {
-          method: "POST",
-          body: campi(riga),
-          headers: { "X-Requested-With": "fetch" }
-        });
-        const esito = await risposta.json();
+      // Riga esistente: aggiorna solo i pezzi che il server ha rimandato.
+      Object.entries(esito.corso).forEach(function ([chiave, valore]) {
+        const posto = riga.querySelector('[data-campo="' + chiave + '"]');
+        if (posto) posto.textContent = valore;
+      });
+      riga.classList.remove("aperta");
 
-        if (!risposta.ok || !esito.ok) {
-          avviso.textContent = esito.errore || "Salvataggio non riuscito.";
-          return;
-        }
+    } catch (errore) {
+      avviso.textContent = "Errore di rete: riprova.";
+    } finally {
+      riga.classList.remove("in-corso");
+    }
+  }
 
-        // Una riga nuova non ha ancora la vista compatta completa.
-        // Ricostruirla qui significherebbe duplicare in JavaScript la logica
-        // del template: ricaricare costa una richiesta ed e' sempre corretto.
-        if (nuova) { location.reload(); return; }
-
-        // Riga esistente: aggiorna solo i pezzi che il server ha rimandato.
-        Object.entries(esito.corso).forEach(function ([chiave, valore]) {
-          const posto = riga.querySelector('[data-campo="' + chiave + '"]');
-          if (posto) posto.textContent = valore;
-        });
-        riga.classList.remove("aperta");
-
-      } catch (errore) {
-        avviso.textContent = "Errore di rete: riprova.";
-      } finally {
-        riga.classList.remove("in-corso");
-      }
+  async function elimina(riga) {
+    // Una riga mai salvata si toglie e basta: nel database non c'e' niente.
+    if (riga.classList.contains("nuova")) {
+      riga.remove();
+      if (!lista.children.length) vuota.classList.remove("d-none");
+      return;
     }
 
-    async function elimina(riga) {
-      // Una riga mai salvata si toglie e basta: nel database non c'e' niente.
-      if (riga.classList.contains("nuova")) {
+    riga.classList.add("in-corso");
+    try {
+      const risposta = await fetch(riga.dataset.urlElimina, {
+        method: "POST",
+        headers: { "X-Requested-With": "fetch" }
+      });
+      const esito = await risposta.json();
+
+      if (risposta.ok && esito.ok) {
         riga.remove();
-        if (!lista.children.length) vuota.classList.remove("d-none");
-        return;
-      }
-
-      riga.classList.add("in-corso");
-      try {
-        const risposta = await fetch(riga.dataset.urlElimina, {
-          method: "POST",
-          headers: { "X-Requested-With": "fetch" }
-        });
-        const esito = await risposta.json();
-
-        if (risposta.ok && esito.ok) {
-          riga.remove();
-          if (!lista.children.length) location.reload();
-        } else {
-          riga.classList.remove("in-corso");
-          riga.querySelector(".messaggio").textContent =
-            esito.errore || "Eliminazione non riuscita.";
-        }
-      } catch (errore) {
+        if (!lista.children.length) location.reload();
+      } else {
         riga.classList.remove("in-corso");
+        riga.querySelector(".messaggio").textContent =
+          esito.errore || "Eliminazione non riuscita.";
       }
+    } catch (errore) {
+      riga.classList.remove("in-corso");
     }
-  })();
-  </script>
-  {% endif %}
+  }
+})();
+</script>
+{% endif %}
 {% endblock %}

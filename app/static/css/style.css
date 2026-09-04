@@ -63,3 +63,16 @@ code {
 @media (prefers-reduced-motion: reduce) {
   .riga-espansa, .riga { transition: none; }
 }
+
+
+
+.avanzamento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.tappa { padding-top: 20px; position: relative; }
+.tappa::before { content: ""; position: absolute; top: 0; left: 0; right: 0;
+                 height: 4px; border-radius: 2px; background: #dde3e0; }
+.tappa.fatta::before   { background: #2a6b3d; }
+.tappa.attuale::before { background: #0f5a52; }
+.tappa-nome { font-size: .7rem; line-height: 1.25; color: #6f7c78; }
+.tappa.attuale .tappa-nome { color: #16211f; font-weight: 700; }
+.tappa-data { font-family: monospace; font-size: .65rem; color: #9aa8a3; }
+@media (max-width: 700px) { .avanzamento { grid-template-columns: repeat(3, 1fr); } }

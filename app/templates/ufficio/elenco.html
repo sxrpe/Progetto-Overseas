@@ -1,30 +1,176 @@
 {#
-  TUTTE LE PRATICHE (ufficio)  ->  FASE 7.5 e 7.10
+  ELENCO DI TUTTE LE PRATICHE, PER L'UFFICIO OVERSEAS.
 
-  L'ufficio e' l'unico ruolo che vede tutto. Qui il filtro non c'e' per
-  appartenenza, ma servono i filtri per consultazione: stato, anno
-  accademico, paese.
+  VARIABILI ATTESE DALLA ROTTA
+      da_fare      {"pratica", "azione", "giorni"}  azione: "verifica" | "chiudi"
+      dal_docente  stesse chiavi, con i giorni di attesa valorizzati
+      le_altre     stesse chiavi, senza azione
 
-  I FILTRI SI PASSANO IN QUERYSTRING, non in sessione:
-      /ufficio/pratiche?stato=chiusa
-  Cosi' il filtro e' condivisibile, resta nella cronologia del browser e
-  funziona con il pulsante indietro.
-  La route deve validare il valore ricevuto: se qualcuno scrive
-  ?stato=inventato, si risponde con un errore, non con una pagina rotta.
+  IL CRITERIO
+      Tre gruppi, nell'ordine in cui servono:
+        1. cosa devo fare io
+        2. cosa sto aspettando da qualcun altro   <- il sollecito
+        3. tutto il resto
 
-  I DUE COMANDI DELL'UFFICIO
-    - "Verifica pre-partenza", visibile solo quando le condizioni ci sono
-    - "Chiudi pratica", visibile solo quando le condizioni ci sono
-  Entrambi vanno inviati in POST, mai come link: un GET non deve mai
-  modificare i dati (basterebbe che il browser precarichi il link).
+      Il secondo gruppo e' quello che nessun elenco per stato saprebbe
+      mostrare: quelle pratiche sono tutte in ATTESA_APPROVAZIONE_LA come
+      quelle del primo gruppo, ma il lavoro sta da un'altra parte.
+
+  I PULSANTI SONO FORM
+      Verifica e chiusura cambiano lo stato della pratica: sono POST, non
+      link. Un link farebbe avanzare una pratica al passaggio di un
+      programma che scarica le pagine.
 #}
 
 {% extends "base.html" %}
 {% from "_frammenti.html" import stato_pratica %}
 
-{% block titolo %}Tutte le pratiche{% endblock %}
+{% block titolo %}Pratiche — ufficio Overseas{% endblock %}
+
+
+{% macro tabella(righe, mostra_attesa, mostra_azioni) %}
+<div class="table-responsive">
+  <table class="table align-middle mb-0">
+    <thead>
+      <tr>
+        <th>Pratica</th>
+        <th>Studente</th>
+        <th>Destinazione</th>
+        <th>Referente</th>
+        <th>Stato</th>
+        {% if mostra_attesa %}<th>Ferma da</th>{% endif %}
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in righe %}
+        <tr>
+          <td>
+            <span class="font-monospace">{{ r.pratica.codice_pratica }}</span><br>
+            <span class="text-body-secondary small">
+              {{ r.pratica.anno_accademico }}/{{ r.pratica.anno_accademico + 1 }}</span>
+          </td>
+          <td>
+            {{ r.pratica.studente.nome_completo }}<br>
+            <span class="text-body-secondary small font-monospace">
+              {{ r.pratica.studente.matricola }}</span>
+          </td>
+          <td>
+            {{ r.pratica.istituto.nome }}<br>
+            <span class="text-body-secondary small">
+              {{ r.pratica.istituto.citta }}, {{ r.pratica.istituto.paese }}</span>
+          </td>
+          <td class="small">{{ r.pratica.docente.nome_completo }}</td>
+          <td>{{ stato_pratica(r.pratica.stato) }}</td>
+
+          {% if mostra_attesa %}
+            <td class="font-monospace">
+              {% if r.giorni is none %}
+                <span class="text-body-secondary">—</span>
+              {% elif r.giorni >= 7 %}
+                <span class="text-danger fw-semibold">{{ r.giorni }} giorni</span>
+              {% else %}
+                {{ r.giorni }} {{ 'giorno' if r.giorni == 1 else 'giorni' }}
+              {% endif %}
+            </td>
+          {% endif %}
+
+          <td class="text-end">
+            <div class="d-inline-flex gap-2 align-items-center">
+
+              <a href="{{ url_for('pratiche.dettaglio', id_pratica=r.pratica.id) }}"
+                 class="btn btn-sm btn-outline-secondary">Apri</a>
+
+              <a href="{{ url_for('ufficio.vedi_la', id_pratica=r.pratica.id) }}"
+                 class="btn btn-sm btn-outline-secondary">Piano</a>
+
+              {% if mostra_azioni and r.azione == 'verifica' %}
+                <form method="post"
+                      action="{{ url_for('ufficio.verifica_pre_partenza',
+                                         id_pratica=r.pratica.id) }}">
+                  <button type="submit" class="btn btn-sm btn-primary">
+                    Verifica pre-partenza
+                  </button>
+                </form>
+              {% elif mostra_azioni and r.azione == 'chiudi' %}
+                <form method="post"
+                      action="{{ url_for('ufficio.chiudi_pratica',
+                                         id_pratica=r.pratica.id) }}">
+                  <button type="submit" class="btn btn-sm btn-success">
+                    Chiudi la pratica
+                  </button>
+                </form>
+              {% endif %}
+
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
 
 {% block contenuto %}
-  <h1 class="h4 mb-3">Tutte le pratiche</h1>
-  <div class="alert alert-secondary">Da implementare in Fase 7.5 e 7.10.</div>
+
+<div class="mb-4">
+  <h1 class="h3 mb-1">Pratiche di mobilità</h1>
+  <p class="text-body-secondary mb-0 small">
+    Ufficio Overseas ·
+    {{ da_fare | length + dal_docente | length + le_altre | length }} pratiche
+  </p>
+</div>
+
+{# ---------- 1. TOCCA A NOI ---------- #}
+<div class="card mb-4 {% if da_fare %}border-primary{% endif %}">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    Richiedono un tuo intervento
+    <span class="badge text-bg-secondary">{{ da_fare | length }}</span>
+  </div>
+  {% if da_fare %}
+    {{ tabella(da_fare, false, true) }}
+  {% else %}
+    <div class="card-body text-center py-4">
+      <p class="text-body-secondary mb-0 small">
+        Nessuna pratica in attesa dell'ufficio.
+      </p>
+    </div>
+  {% endif %}
+</div>
+
+{# ---------- 2. FERME DAL DOCENTE ---------- #}
+<div class="card mb-4">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    In attesa del docente referente
+    <span class="badge text-bg-secondary">{{ dal_docente | length }}</span>
+    <span class="fw-normal text-body-secondary small ms-1">
+      da sollecitare oltre i sette giorni</span>
+  </div>
+  {% if dal_docente %}
+    {{ tabella(dal_docente, true, false) }}
+  {% else %}
+    <div class="card-body text-center py-4">
+      <p class="text-body-secondary mb-0 small">
+        Nessuna pratica ferma in valutazione.
+      </p>
+    </div>
+  {% endif %}
+</div>
+
+{# ---------- 3. TUTTE LE ALTRE ---------- #}
+<div class="card">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    Le altre
+    <span class="badge text-bg-secondary">{{ le_altre | length }}</span>
+  </div>
+  {% if le_altre %}
+    {{ tabella(le_altre, false, false) }}
+  {% else %}
+    <div class="card-body text-center py-4">
+      <p class="text-body-secondary mb-0 small">Non ci sono altre pratiche.</p>
+    </div>
+  {% endif %}
+</div>
+
 {% endblock %}

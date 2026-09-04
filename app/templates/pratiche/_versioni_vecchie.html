@@ -1,0 +1,92 @@
+{#
+  FRAMMENTO: le versioni precedenti del Learning Agreement.
+
+  NON ESTENDE base.html, ED E' VOLUTO
+      Questo file non produce una pagina ma un pezzo di pagina: lo script di
+      dettaglio.html lo chiede con fetch e lo infila dentro un div. Se
+      estendesse base.html arriverebbe un documento intero, con navbar e
+      piè di pagina, dentro una scheda.
+
+  VARIABILI ATTESE DALLA ROTTA
+      pratica    la Pratica
+      versioni   le versioni da mostrare, gia' escluse quelle in evidenza,
+                 dalla piu' recente alla piu' vecchia
+
+  PERCHE' ESISTE
+      Le versioni vecchie sono storia: interessano di rado, e caricare i
+      corsi di tutte a ogni apertura del dettaglio significherebbe pagare
+      sempre per un'informazione che quasi nessuno guarda. Qui si paga solo
+      chi la chiede.
+#}
+
+{% from "_frammenti.html" import esito_documento, data %}
+
+{% if not versioni %}
+  <p class="small text-body-secondary mb-0">Non ci sono altre versioni.</p>
+{% endif %}
+
+{% for v in versioni %}
+  <div class="border rounded p-3 {% if not loop.last %}mb-3{% endif %}">
+
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <span class="fw-semibold">Versione {{ v.numero_versione }}</span>
+      {{ esito_documento(v.esito) }}
+      <span class="small text-body-secondary">
+        caricata il {{ data(v.data_caricamento) }}
+        {% if v.data_decisione %}
+          · decisione del {{ data(v.data_decisione) }}
+        {% endif %}
+      </span>
+      {% if v.file_path %}
+        <a href="{{ url_for('pratiche.scarica_la', id_versione=v.id) }}"
+           class="btn btn-sm btn-outline-secondary ms-auto">Scarica</a>
+      {% endif %}
+    </div>
+
+    {% if v.motivazione %}
+      <div class="alert alert-danger py-2 small mb-2">
+        <span class="fw-semibold">Motivazione del rifiuto:</span>
+        {{ v.motivazione }}
+      </div>
+    {% endif %}
+
+    {% if v.corsi_esterni %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 small">
+          <thead>
+            <tr>
+              <th>Codice</th>
+              <th>Insegnamento estero</th>
+              <th class="text-end">CFU</th>
+              <th>Riconosciuto come</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in v.corsi_esterni %}
+              <tr>
+                <td class="font-monospace">{{ c.codice }}</td>
+                <td>{{ c.titolo }}</td>
+                <td class="text-end font-monospace">{{ c.crediti }}</td>
+                <td>
+                  {% if c.equivalenze %}
+                    {% for e in c.equivalenze %}
+                      <span class="font-monospace">{{ e.corso_interno.codice }}</span>
+                      {{ e.corso_interno.titolo }}{% if not loop.last %} · {% endif %}
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-body-secondary">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="small text-body-secondary mb-0">
+        Nessun insegnamento in questa versione.
+      </p>
+    {% endif %}
+
+  </div>
+{% endfor %}

@@ -240,7 +240,7 @@ def nuovo_la(id_pratica: int):
         db.session.add(versione)
         db.session.commit()
         return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
-                               corsi=[], corsi_interni=corsi_interni, sola_lettura=False)
+                               corsi=[], corsi_interni=corsi_interni, sola_lettura=False, puo_decidere=False)
     else:
         corsi = db.session.scalars(
             sa.select(CorsoEsterno)
@@ -253,7 +253,7 @@ def nuovo_la(id_pratica: int):
         ).all()
         # {{ c.equivalenze[0].corso_interno.codice }} sono due selection load annidati
         return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
-                               corsi=corsi,corsi_interni=corsi_interni, sola_lettura=False)
+                               corsi=corsi,corsi_interni=corsi_interni, sola_lettura=False, puo_decidere=False)
 
 
 # ============================================================================
@@ -386,7 +386,15 @@ def elimina_map(id_map: int):
 # ============================================================================
 
 def _corsi_della_versione(versione):
-    """Ritorna """
+    """Ritorna una lista di corsi esterni della versione, con interpolati i corsi interni
+
+     Se faccio corsi = _corsi_della_versione(versione),
+     for corso_est in corsi:
+        print(f"Corso all'estero: {corso_est.titolo}")
+        for eq in corso_est.equivalenze:
+            # Questo non lancia query aggiuntive, i dati sono già in memoria!
+            print(f"  Riconosciuto a Ca' Foscari come: {eq.corso_interno.titolo}")
+     """
     return db.session.scalars(
         sa.select(CorsoEsterno)
         .where(CorsoEsterno.learning_agreement_id == versione.id)
@@ -437,7 +445,12 @@ def documento_la(id_pratica: int):
         versione.file_path = nome_disco
         versione.nome_file_originale = nome_originale
         db.session.flush()
-        pratica.stato = StatoPratica.ATTESA_APPROVAZIONE_LA
+        # Da APERTA la pratica entra in valutazione. Durante la mobilita' invece
+        # resta MOBILITA_IN_CORSO: e' la versione in attesa a dire che c'e' una
+        # proposta pendente, non lo stato della pratica.
+        if pratica.stato == StatoPratica.APERTA:
+            pratica.stato = StatoPratica.ATTESA_APPROVAZIONE_LA
+
 
         try:
             db.session.commit()
@@ -453,3 +466,102 @@ def documento_la(id_pratica: int):
     return render_template("pratiche/documento.html",
                            pratica=pratica, versione=versione,
                            corsi=_corsi_della_versione(versione))
+
+
+# ============================================================================
+# DATE DELLA MOBILITA'
+# ============================================================================
+
+@studente_bp.route("/pratiche/<int:id_pratica>/inizio", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def registra_inizio(id_pratica: int):
+    """Registra l'arrivo presso l'ateneo ospitante.
+
+    Data e stato stanno sulla stessa riga, quindi partono in un solo UPDATE:
+    qui non serve nessun flush. Il CHECK ck_pratica_stato_implica_inizio
+    verifica proprio che i due valori arrivino insieme.
+    """
+    pratica = _pratica_dello_studente(id_pratica)
+
+    try:
+        giorno = dt.date.fromisoformat(request.form.get("data_inizio_effettivo", ""))
+    except ValueError:
+        flash("Data di arrivo non valida.", "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    pratica.data_inizio_effettivo = giorno
+    pratica.stato = StatoPratica.MOBILITA_IN_CORSO
+
+    try:
+        db.session.commit()
+    except sa.exc.IntegrityError:
+        db.session.rollback()
+        flash("La data non è coerente con le altre date della pratica.", "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+    except sa.exc.DatabaseError as errore:
+        db.session.rollback()
+        flash(str(errore.orig).split("\n")[0], "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    flash("Inizio della mobilità registrato. Buon soggiorno.", "success")
+    return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+
+@studente_bp.route("/pratiche/<int:id_pratica>/rientro", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def registra_rientro(id_pratica: int):
+    """Registra il rientro e carica il Transcript of Records.
+
+    L'ORDINE DELLE SCRITTURE
+        Il trigger sulla transizione verso IN_RICONOSCIMENTO_ESAMI conta le
+        righe in transcript per quella pratica. Se l'UPDATE su pratica
+        partisse per primo, il transcript non ci sarebbe ancora e il
+        controllo fallirebbe. Da qui il flush() prima di toccare lo stato.
+
+    IL FILE SU DISCO NON SEGUE IL ROLLBACK
+        salva_documento() ha gia' scritto sul disco quando arriva il commit.
+        Se il commit fallisce, il rollback annulla il database ma non il
+        file: va cancellato a mano, altrimenti si accumulano orfani.
+    """
+    pratica = _pratica_dello_studente(id_pratica)
+
+    try:
+        giorno = dt.date.fromisoformat(request.form.get("data_fine_effettiva", ""))
+    except ValueError:
+        flash("Data di rientro non valida.", "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    try:
+        nome_disco, nome_originale = salva_documento(request.files.get("documento"))
+    except DocumentoNonValido as errore:
+        flash(str(errore), "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    db.session.add(Transcript(
+        pratica_id=pratica.id,
+        file_path=nome_disco,
+        nome_file_originale=nome_originale,
+    ))
+    db.session.flush()          # il trigger deve vederlo
+
+    pratica.data_fine_effettiva = giorno
+    pratica.stato = StatoPratica.IN_RICONOSCIMENTO_ESAMI
+
+    try:
+        db.session.commit()
+    except sa.exc.IntegrityError:
+        db.session.rollback()
+        elimina_documento(nome_disco)
+        flash("Transcript già presente, oppure date non coerenti.", "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+    except sa.exc.DatabaseError as errore:
+        db.session.rollback()
+        elimina_documento(nome_disco)
+        flash(str(errore.orig).split("\n")[0], "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    flash("Rientro registrato e Transcript caricato. "
+          "Ora puoi inserire i voti degli esami sostenuti.", "success")
+    return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))

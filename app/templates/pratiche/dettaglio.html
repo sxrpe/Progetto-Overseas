@@ -1,68 +1,232 @@
 {#
-  DETTAGLIO DELLA PRATICA.
+  DETTAGLIO DELLA PRATICA — la pagina piu' importante dell'applicazione.
 
-  La pagina piu' importante dell'applicazione: la vedono tutti e tre i ruoli,
-  ed e' quella da cui partiranno tutte le azioni.
+  La vedono tutti e tre i ruoli. Cambiano solo i comandi, decisi da ruolo e
+  stato; le informazioni sono le stesse per tutti.
 
-  Per ora e' in sola lettura. I pulsanti si aggiungono man mano che le rotte
-  esistono, e ciascuno sara' dentro un {% if %} che verifica ruolo e stato.
+  VARIABILI ATTESE DALLA ROTTA
+      pratica          la Pratica
+      versione         la versione del piano che conta adesso, o None
+      corsi            i suoi CorsoEsterno, con equivalenze gia' caricate
+      e_proposta       True se "versione" e' una proposta ancora da decidere
+      approvata        l'ultima versione approvata, o None
+      altre_versioni   quante versioni restano fuori (per il pulsante)
+      tocca_a_me       True se l'azione spetta a chi sta guardando
+      avviso           il testo di cosa fare, gia' scelto in base al ruolo
 
-  TRE INFORMAZIONI SEMPRE IN ALTO, SEMPRE NELLO STESSO POSTO
-      in che STATO e' la pratica
-      CHI deve agire adesso
-      cosa MANCA per andare avanti
-  E' il modo piu' semplice per rendere l'applicazione comprensibile a chi la
+  LE TRE COSE SEMPRE IN CIMA, SEMPRE NELLO STESSO POSTO
+      dove si trova la pratica      la barra di avanzamento
+      a chi tocca adesso            il riquadro dell'avviso
+      cosa si puo' fare             la scheda delle azioni
+
+  E' il modo piu' rapido per rendere l'applicazione comprensibile a chi la
   guarda per la prima volta, e conta molto nel video.
+
+  I COLORI DICONO CHI E' BLOCCATO
+      Il bordo della pagina e il riquadro dell'avviso prendono il colore
+      dello stato da StatoPratica.COLORI, e il riquadro diventa acceso solo
+      quando l'azione spetta a te. Un colore che significa sempre la stessa
+      cosa si impara in due schermate.
 #}
+
 {% extends "base.html" %}
-{% from "_frammenti.html" import stato_pratica, esito_documento,
-                                 esito_riconoscimento, periodo, data %}
+{% from "_frammenti.html" import stato_pratica, esito_documento, periodo, data %}
 
 {% block titolo %}Pratica {{ pratica.codice_pratica }}{% endblock %}
 
+
+{#
+  MACRO DELLA TABELLA DEL PIANO.
+  La usano la versione in evidenza e, con lo stesso aspetto, le versioni
+  vecchie caricate su richiesta: sta qui perche' anche il frammento la
+  importa da questo file.
+#}
+{% macro tabella_corsi(corsi) %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle mb-0 small">
+    <thead>
+      <tr>
+        <th>Codice</th>
+        <th>Insegnamento estero</th>
+        <th class="text-end">CFU</th>
+        <th>Riconosciuto come</th>
+        <th class="text-end">CFU</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in corsi %}
+        <tr>
+          <td class="font-monospace">{{ c.codice }}</td>
+          <td>{{ c.titolo }}</td>
+          <td class="text-end font-monospace">{{ c.crediti }}</td>
+          <td>
+            {% if c.equivalenze %}
+              {% for e in c.equivalenze %}
+                <span class="font-monospace">{{ e.corso_interno.codice }}</span>
+                {{ e.corso_interno.titolo }}{% if not loop.last %} · {% endif %}
+              {% endfor %}
+            {% else %}
+              <span class="text-danger">nessuna equivalenza</span>
+            {% endif %}
+          </td>
+          <td class="text-end font-monospace">
+            {% if c.equivalenze %}
+              {{ c.equivalenze | sum(attribute='corso_interno.crediti') }}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+
 {% block contenuto %}
 
-{# ---------- INTESTAZIONE ------------------------------------------- #}
-<div class="d-flex justify-content-between align-items-start mb-4">
+{% set colore = StatoPratica.COLORI[pratica.stato] %}
+
+
+{# ================================================================= #}
+{#  INTESTAZIONE                                                     #}
+{# ================================================================= #}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-3">
   <div>
     <h1 class="h3 mb-1">Pratica {{ pratica.codice_pratica }}</h1>
     <p class="text-body-secondary mb-0">
       {{ pratica.istituto.nome }} — {{ pratica.istituto.citta }},
       {{ pratica.istituto.paese }}
+      <br>
+      <span class="small">
+        {{ pratica.studente.nome_completo }}
+        <span class="font-monospace">{{ pratica.studente.matricola }}</span>
+        · {{ pratica.anno_accademico }}/{{ pratica.anno_accademico + 1 }}
+        · {{ periodo(pratica.periodo) }}
+      </span>
     </p>
   </div>
   {{ stato_pratica(pratica.stato) }}
 </div>
 
-{# ---------- COSA SERVE ADESSO ---------------------------------------- #}
-{#
-  Il testo dipende dallo stato. E' scritto qui e non in Python perche' e'
-  puramente descrittivo: se domani serve anche un pulsante, allora la logica
-  si sposta nella rotta e qui resta solo la stampa.
-#}
-<div class="alert alert-info">
-  {% if pratica.stato == StatoPratica.APERTA %}
-    Lo studente sta compilando il Learning Agreement.
-    Per proseguire serve almeno un esame estero con la sua equivalenza, e il
-    documento firmato caricato.
-  {% elif pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA %}
-    In attesa della valutazione del docente referente
-    ({{ pratica.docente.nome_completo }}).
-  {% elif pratica.stato == StatoPratica.PRE_PARTENZA_COMPLETATA %}
-    Documentazione verificata dall'ufficio. Lo studente può partire e
-    registrare la data di inizio effettivo della mobilità.
-  {% elif pratica.stato == StatoPratica.MOBILITA_IN_CORSO %}
-    Mobilità in corso. Al rientro lo studente registra la data di fine e
-    carica il Transcript of Records.
-  {% elif pratica.stato == StatoPratica.IN_RICONOSCIMENTO_ESAMI %}
-    Il docente referente sta valutando gli esami sostenuti.
-    Quando tutti avranno un esito, l'ufficio potrà chiudere la pratica.
-  {% elif pratica.stato == StatoPratica.CHIUSA %}
-    Pratica chiusa. Non è più modificabile.
-  {% endif %}
+
+{# ================================================================= #}
+{#  BARRA DI AVANZAMENTO                                             #}
+{#  Sei tappe, sempre le stesse, con la data sotto quelle superate.  #}
+{#  Rende visibile la macchina a stati, che e' il cuore del progetto.#}
+{# ================================================================= #}
+{% set date_tappe = {
+     'APERTA':                  pratica.data_apertura,
+     'ATTESA_APPROVAZIONE_LA':  none,
+     'PRE_PARTENZA_COMPLETATA': pratica.pre_partenza_verificata_il,
+     'MOBILITA_IN_CORSO':       pratica.data_inizio_effettivo,
+     'IN_RICONOSCIMENTO_ESAMI': pratica.data_fine_effettiva,
+     'CHIUSA':                  pratica.chiusa_il,
+   } %}
+{% set indice_attuale = StatoPratica.TUTTI.index(pratica.stato) %}
+
+<div class="avanzamento mb-4">
+  {% for stato in StatoPratica.TUTTI %}
+    {% set i = loop.index0 %}
+    <div class="tappa {% if i < indice_attuale %}fatta
+                      {% elif i == indice_attuale %}attuale{% endif %}">
+      <div class="tappa-nome">{{ StatoPratica.ETICHETTE[stato] }}</div>
+      <div class="tappa-data">
+        {% if date_tappe[stato] %}{{ data(date_tappe[stato]) }}{% else %}—{% endif %}
+      </div>
+    </div>
+  {% endfor %}
 </div>
 
-{# ---------- DATI ANAGRAFICI ------------------------------------------ #}
+
+{# ================================================================= #}
+{#  COSA SERVE ADESSO                                                #}
+{#  Il testo arriva gia' scelto dalla rotta: diciotto casi fra stati #}
+{#  e ruoli non stanno in una catena di {% if %}.                    #}
+{# ================================================================= #}
+<div class="alert {% if tocca_a_me %}alert-{{ colore }}{% else %}alert-secondary{% endif %}
+            d-flex gap-3 align-items-start">
+  <span class="text-uppercase fw-bold small"
+        style="letter-spacing:.08em; white-space:nowrap; padding-top:.1rem">
+    {% if tocca_a_me %}Tocca a te{% else %}In corso{% endif %}
+  </span>
+  <span>{{ avviso }}</span>
+</div>
+
+
+{# ================================================================= #}
+{#  LE AZIONI                                                        #}
+{#  Una scheda sola, sempre nello stesso punto, con dentro solo cio' #}
+{#  che chi guarda puo' davvero fare adesso.                         #}
+{#                                                                    #}
+{#  NASCONDERE UN PULSANTE NON E' UN CONTROLLO DI SICUREZZA: ogni    #}
+{#  rotta rifa' le sue verifiche, e il database ha l'ultima parola.  #}
+{# ================================================================= #}
+{% set sono_lo_studente = current_user.id == pratica.studente_id %}
+{% set sono_il_docente  = current_user.id == pratica.docente_id %}
+{% set sono_ufficio     = current_user.ruolo == Ruolo.UFFICIO %}
+
+{% set mostra_azioni =
+     (sono_lo_studente and pratica.stato in [StatoPratica.APERTA,
+                                             StatoPratica.MOBILITA_IN_CORSO])
+     or (sono_il_docente and e_proposta and versione.file_path)
+     or (sono_ufficio and pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA
+         and not e_proposta and approvata) %}
+
+{% if mostra_azioni %}
+<div class="card border-{{ colore }} mb-4">
+  <div class="card-header fw-semibold">Azioni disponibili</div>
+  <div class="card-body d-flex gap-2 flex-wrap align-items-center">
+
+    {# --- STUDENTE: compila o modifica il piano --- #}
+    {% if sono_lo_studente and pratica.stato == StatoPratica.APERTA %}
+      <a href="{{ url_for('studente.nuovo_la', id_pratica=pratica.id) }}"
+         class="btn btn-primary">
+        {% if versione %}Riprendi il Learning Agreement{% else %}Compila il Learning Agreement{% endif %}
+      </a>
+      <span class="form-text mb-0">
+        Aggiungi gli insegnamenti e le equivalenze, poi firma e invia.
+      </span>
+    {% endif %}
+
+    {% if sono_lo_studente and pratica.stato == StatoPratica.MOBILITA_IN_CORSO %}
+      <a href="{{ url_for('studente.nuovo_la', id_pratica=pratica.id) }}"
+         class="btn btn-outline-primary">Proponi una modifica al piano</a>
+      <span class="form-text mb-0">
+        Se il programma è cambiato, proponi una nuova versione: quella
+        approvata resta valida finché il docente non decide.
+      </span>
+    {% endif %}
+
+    {# --- DOCENTE: valuta la proposta --- #}
+    {% if sono_il_docente and e_proposta %}
+      <a href="{{ url_for('docente.valuta_la', id_pratica=pratica.id) }}"
+         class="btn btn-primary">Valuta il piano proposto</a>
+      <span class="form-text mb-0">
+        Apri il piano, scarica il documento firmato e decidi.
+      </span>
+    {% endif %}
+
+    {# --- UFFICIO: verifica pre-partenza --- #}
+    {% if sono_ufficio and pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA
+          and not e_proposta and approvata %}
+      <form method="post"
+            action="{{ url_for('ufficio.verifica_pre_partenza', id_pratica=pratica.id) }}">
+        <button type="submit" class="btn btn-primary">
+          Registra la verifica pre-partenza
+        </button>
+      </form>
+      <a href="{{ url_for('ufficio.vedi_la', id_pratica=pratica.id) }}"
+         class="btn btn-outline-secondary">Rivedi il piano</a>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
+
+{# ================================================================= #}
+{#  DATI DELLA PRATICA                                               #}
+{# ================================================================= #}
 <div class="card mb-3">
   <div class="card-header fw-semibold">Dati della pratica</div>
   <div class="card-body">
@@ -70,10 +234,8 @@
       <div class="col-sm-6 col-lg-4">
         <span class="fw-semibold">Studente</span><br>
         {{ pratica.studente.nome_completo }}
-        {% if pratica.studente.matricola %}
-          <span class="text-body-secondary">
-            (matr. {{ pratica.studente.matricola }})</span>
-        {% endif %}
+        <span class="text-body-secondary font-monospace">
+          {{ pratica.studente.matricola }}</span>
       </div>
       <div class="col-sm-6 col-lg-4">
         <span class="fw-semibold">Docente referente</span><br>
@@ -99,163 +261,255 @@
             — {{ pratica.verificata_da.nome_completo }}</span>
         {% endif %}
       </div>
-      <div class="col-sm-6 col-lg-4">
-        <span class="fw-semibold">Inizio effettivo</span><br>
-        {{ data(pratica.data_inizio_effettivo) }}
-      </div>
-      <div class="col-sm-6 col-lg-4">
-        <span class="fw-semibold">Fine effettiva</span><br>
-        {{ data(pratica.data_fine_effettiva) }}
-      </div>
-      <div class="col-sm-6 col-lg-4">
-        <span class="fw-semibold">Chiusa il</span><br>
-        {{ data(pratica.chiusa_il) }}
-        {% if pratica.chiusa_da %}
-          <span class="text-body-secondary">
-            — {{ pratica.chiusa_da.nome_completo }}</span>
-        {% endif %}
-      </div>
     </div>
 
     {% if pratica.note %}
       <hr>
       <div class="small">
-        <span class="fw-semibold">Note</span><br>
-        {{ pratica.note }}
+        <span class="fw-semibold">Note</span><br>{{ pratica.note }}
       </div>
     {% endif %}
   </div>
 </div>
 
-{# ---------- LEARNING AGREEMENT: LE VERSIONI --------------------------- #}
-<div class="card mb-3">
-  <div class="card-header fw-semibold d-flex align-items-center gap-2 flex-wrap">
-  Learning Agreement
-  {% if versioni %}
-    <span class="text-body-secondary fw-normal">
-      — {{ versioni | length }}
-      {{ 'versione' if versioni | length == 1 else 'versioni' }}</span>
-  {% endif %}
 
-  {% if current_user.id == pratica.studente_id
-        and pratica.stato in [StatoPratica.APERTA,
-                              StatoPratica.MOBILITA_IN_CORSO] %}
-    <a href="{{ url_for('studente.nuovo_la', id_pratica=pratica.id) }}"
-       class="btn btn-primary btn-sm ms-auto">
-      {% if versioni %}Proponi una modifica{% else %}Compila il piano{% endif %}
-    </a>
-  {% endif %}
-</div>
+{# ================================================================= #}
+{#  DATE DELLA MOBILITA'                                             #}
+{#                                                                    #}
+{#  Le date si registrano UNA VOLTA, nel momento in cui l'evento     #}
+{#  accade, e sono cio' che fa avanzare lo stato. Non sono            #}
+{#  modificabili dopo: sono fatti, non impostazioni. Se una data      #}
+{#  fosse sbagliata la correzione e' un intervento amministrativo,    #}
+{#  non un ripensamento dello studente.                               #}
+{# ================================================================= #}
+<div class="card mb-3
+            {% if sono_lo_studente and pratica.stato in
+                  [StatoPratica.PRE_PARTENZA_COMPLETATA,
+                   StatoPratica.MOBILITA_IN_CORSO] %}border-{{ colore }}{% endif %}">
+  <div class="card-header fw-semibold">Date della mobilità</div>
   <div class="card-body">
 
-    {% if not versioni %}
-      <p class="text-body-secondary mb-0">
-        Nessuna versione del piano è ancora stata creata.</p>
-    {% else %}
+    <div class="row g-3 small mb-0">
+      <div class="col-sm-6">
+        <span class="fw-semibold">Inizio effettivo</span><br>
+        {{ data(pratica.data_inizio_effettivo) }}
+      </div>
+      <div class="col-sm-6">
+        <span class="fw-semibold">Fine effettiva</span><br>
+        {{ data(pratica.data_fine_effettiva) }}
+      </div>
+    </div>
 
-      {% for v in versioni %}
-        {#
-          "corrente" arriva dalla rotta ed e' la versione approvata con
-          numero piu' alto: il piano che vale davvero. Le altre restano
-          visibili come storia, ed e' esattamente il punto del versionamento.
-        #}
-        <div class="border rounded p-3 {% if not loop.last %}mb-3{% endif %}
-                    {% if corrente and v.id == corrente.id %}border-success{% endif %}">
-
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <div class="fw-semibold">
-              Versione {{ v.numero_versione }}
-              {% if corrente and v.id == corrente.id %}
-                <span class="badge text-bg-success ms-1">piano operativo</span>
-              {% endif %}
-            </div>
-            {{ esito_documento(v.esito) }}
-          </div>
-
-          <div class="small text-body-secondary mb-2">
-            Caricata il {{ data(v.data_caricamento) }}
-            {% if v.data_decisione %}
-              · decisione del {{ data(v.data_decisione) }}
-            {% endif %}
-            {% if not v.file_path %}
-              · <span class="text-warning-emphasis">documento non ancora caricato</span>
-            {% endif %}
-          </div>
-
-          {% if v.motivazione %}
-            <div class="alert alert-danger py-2 small mb-2">
-              <span class="fw-semibold">Motivazione del rifiuto:</span>
-              {{ v.motivazione }}
-            </div>
-          {% endif %}
-
-          {# --- gli esami pianificati in questa versione --- #}
-          {% if v.corsi_esterni %}
-            <div class="table-responsive">
-              <table class="table table-sm align-middle mb-0 small">
-                <thead>
-                  <tr>
-                    <th>Codice estero</th>
-                    <th>Insegnamento estero</th>
-                    <th class="text-end">CFU</th>
-                    <th>Voto</th>
-                    <th>Riconoscimento</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for c in v.corsi_esterni %}
-                    <tr>
-                      <td class="font-monospace">{{ c.codice }}</td>
-                      <td>{{ c.titolo }}</td>
-                      <td class="text-end">{{ c.crediti }}</td>
-                      <td>
-                        {% if c.esame %}
-                          {{ c.esame.voto }}
-                          <span class="text-body-secondary">
-                            ({{ data(c.esame.data_esame) }})</span>
-                        {% else %}
-                          <span class="text-body-secondary">—</span>
-                        {% endif %}
-                      </td>
-                      <td>
-                        {% if c.esame %}
-                          {{ esito_riconoscimento(c.esame.esito_riconoscimento) }}
-                        {% else %}
-                          <span class="text-body-secondary">—</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <p class="small text-body-secondary mb-0">
-              Nessun esame inserito in questa versione.</p>
-          {% endif %}
-
+    {# --- registrazione dell'arrivo --- #}
+    {% if sono_lo_studente
+          and pratica.stato == StatoPratica.PRE_PARTENZA_COMPLETATA %}
+      <hr>
+      <form method="post"
+            action="{{ url_for('studente.registra_inizio', id_pratica=pratica.id) }}"
+            class="row g-2 align-items-end">
+        <div class="col-12">
+          <p class="form-text mt-0 mb-2">
+            Registra il giorno in cui sei arrivato presso l'ateneo ospitante.
+            Da quel momento la pratica risulta in mobilità e la data non è
+            più modificabile.
+          </p>
         </div>
-      {% endfor %}
-
+        <div class="col-12 col-sm-5">
+          <label for="data_inizio" class="form-label small mb-1">
+            Data di arrivo</label>
+          <input type="date" class="form-control form-control-sm"
+                 id="data_inizio" name="data_inizio_effettivo" required
+                 min="{{ pratica.pre_partenza_verificata_il }}">
+        </div>
+        <div class="col-12 col-sm-auto">
+          <button type="submit" class="btn btn-primary btn-sm">
+            Registra l'inizio della mobilità
+          </button>
+        </div>
+      </form>
     {% endif %}
+
+    {# --- registrazione del rientro, con il Transcript --- #}
+    {% if sono_lo_studente
+          and pratica.stato == StatoPratica.MOBILITA_IN_CORSO %}
+      <hr>
+      <form method="post"
+            action="{{ url_for('studente.registra_rientro', id_pratica=pratica.id) }}"
+            enctype="multipart/form-data" class="row g-2 align-items-end">
+        <div class="col-12">
+          <p class="form-text mt-0 mb-2">
+            Al rientro registra il giorno in cui la mobilità è terminata e
+            carica il Transcript of Records rilasciato dall'ateneo ospitante.
+            Servono tutti e due insieme: senza il documento non si può passare
+            alla fase di riconoscimento.
+          </p>
+        </div>
+        <div class="col-12 col-sm-4">
+          <label for="data_fine" class="form-label small mb-1">
+            Data di rientro</label>
+          <input type="date" class="form-control form-control-sm"
+                 id="data_fine" name="data_fine_effettiva" required
+                 min="{{ pratica.data_inizio_effettivo }}">
+        </div>
+        <div class="col-12 col-sm-5">
+          <label for="transcript" class="form-label small mb-1">
+            Transcript of Records (PDF)</label>
+          <input type="file" class="form-control form-control-sm"
+                 id="transcript" name="documento" accept=".pdf" required>
+        </div>
+        <div class="col-12 col-sm-auto">
+          <button type="submit" class="btn btn-primary btn-sm">
+            Registra il rientro
+          </button>
+        </div>
+      </form>
+    {% endif %}
+
   </div>
 </div>
 
-{# ---------- TRANSCRIPT ------------------------------------------------ #}
+
+{# ================================================================= #}
+{#  LEARNING AGREEMENT                                               #}
+{#  Solo la versione che conta adesso. Le altre dietro un pulsante.  #}
+{# ================================================================= #}
+<div class="card mb-3">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2 flex-wrap">
+    Learning Agreement
+    {% if versione %}
+      <span class="text-body-secondary fw-normal small">
+        versione {{ versione.numero_versione }}</span>
+      {{ esito_documento(versione.esito) }}
+      {% if e_proposta %}
+        <span class="badge text-bg-warning">proposta in valutazione</span>
+      {% elif approvata and versione.id == approvata.id %}
+        <span class="badge text-bg-success">piano operativo</span>
+      {% endif %}
+    {% endif %}
+
+    {% if versione and versione.file_path %}
+      <a href="{{ url_for('pratiche.scarica_la', id_versione=versione.id) }}"
+         class="btn btn-sm btn-outline-secondary ms-auto">Scarica il documento</a>
+    {% endif %}
+  </div>
+
+  <div class="card-body">
+    {% if not versione %}
+      <p class="text-body-secondary mb-0 small">
+        Nessuna versione del piano è ancora stata creata.
+      </p>
+
+    {% else %}
+      <div class="small text-body-secondary mb-3">
+        Caricata il {{ data(versione.data_caricamento) }}
+        {% if versione.data_decisione %}
+          · decisione del {{ data(versione.data_decisione) }}
+        {% endif %}
+        {% if not versione.file_path %}
+          · <span class="text-warning-emphasis">documento non ancora caricato</span>
+        {% endif %}
+      </div>
+
+      {% if versione.motivazione and versione.esito == EsitoDocumento.RIFIUTATO %}
+        <div class="alert alert-danger py-2 small">
+          <span class="fw-semibold">Motivazione del rifiuto:</span>
+          {{ versione.motivazione }}
+        </div>
+      {% endif %}
+
+      {% if corsi %}
+        {{ tabella_corsi(corsi) }}
+      {% else %}
+        <p class="small text-body-secondary mb-0">
+          Nessun insegnamento inserito in questa versione.
+        </p>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {# --- le versioni precedenti, caricate solo su richiesta --- #}
+  {% if altre_versioni > 0 %}
+    <div class="card-footer bg-transparent">
+      <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none"
+              id="btn-altre-versioni"
+              data-url="{{ url_for('pratiche.versioni_vecchie', id_pratica=pratica.id) }}">
+        Altre versioni ({{ altre_versioni }})
+        <span id="freccia-versioni">&#9662;</span>
+      </button>
+      <div id="altre-versioni" class="mt-3"></div>
+    </div>
+  {% endif %}
+</div>
+
+
+{# ================================================================= #}
+{#  TRANSCRIPT OF RECORDS                                            #}
+{# ================================================================= #}
 <div class="card mb-3">
   <div class="card-header fw-semibold">Transcript of Records</div>
   <div class="card-body">
     {% if pratica.transcript %}
       <div class="small">
-        {{ pratica.transcript.nome_file_originale }}
+        <span class="font-monospace">
+          {{ pratica.transcript.nome_file_originale }}</span>
         <span class="text-body-secondary">
           — caricato il {{ data(pratica.transcript.data_caricamento) }}</span>
       </div>
     {% else %}
       <p class="text-body-secondary small mb-0">
-        Non ancora caricato. Serve per poter chiudere la pratica.</p>
+        Non ancora caricato. Serve per poter chiudere la pratica.
+      </p>
     {% endif %}
   </div>
 </div>
 
+{% endblock %}
+
+
+{% block script %}
+{#
+  Le versioni vecchie arrivano dal server come pezzo di HTML gia' disegnato,
+  al primo clic. Cosi' la pagina non paga il caricamento dei corsi di tutte
+  le versioni ogni volta che qualcuno la apre, e la logica di presentazione
+  resta in un template invece di essere riscritta in JavaScript.
+#}
+{% if altre_versioni > 0 %}
+<script>
+(function () {
+  "use strict";
+
+  const bottone = document.getElementById("btn-altre-versioni");
+  const zona    = document.getElementById("altre-versioni");
+  const freccia = document.getElementById("freccia-versioni");
+  let caricato  = false;
+
+  bottone.addEventListener("click", async function () {
+
+    // Gia' caricate: il clic apre e chiude soltanto.
+    if (caricato) {
+      const aperto = zona.innerHTML !== "" && !zona.hidden;
+      zona.hidden = aperto;
+      freccia.innerHTML = aperto ? "&#9662;" : "&#9652;";
+      return;
+    }
+
+    bottone.disabled = true;
+    try {
+      const risposta = await fetch(bottone.dataset.url);
+      if (!risposta.ok) throw new Error("richiesta fallita");
+      zona.innerHTML = await risposta.text();
+      caricato = true;
+      zona.hidden = false;
+      freccia.innerHTML = "&#9652;";
+    } catch (errore) {
+      zona.innerHTML =
+        '<p class="small text-danger mb-0">Non è stato possibile caricare ' +
+        'le versioni precedenti.</p>';
+    } finally {
+      bottone.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

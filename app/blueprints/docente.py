@@ -45,9 +45,7 @@ from app.security import ruolo_richiesto
 
 docente_bp = Blueprint("docente", __name__)
 
-# Stati in cui la pratica sta aspettando una decisione del docente.
-DA_DECIDERE = (StatoPratica.ATTESA_APPROVAZIONE_LA,
-               StatoPratica.IN_RICONOSCIMENTO_ESAMI)
+
 
 
 # ============================================================================
@@ -82,8 +80,20 @@ def _versione_in_attesa(pratica: Pratica):
         sa.select(LearningAgreement)
         .where(LearningAgreement.pratica_id == pratica.id)
         .where(LearningAgreement.esito == EsitoDocumento.IN_ATTESA)
+        .where(LearningAgreement.file_path.is_not(None)) # FIXME  per sistemare che il prof riesce a approvare un la senza doc
     )
 
+def _proposta_da_valutare(pratica):
+    """La versione che aspetta la TUA decisione: in attesa e gia' firmata.
+
+    Una versione in attesa senza file_path e' una bozza che lo studente sta
+    ancora scrivendo: non riguarda il docente.
+    """
+    for versione in pratica.learning_agreements:
+
+        if versione.esito == EsitoDocumento.IN_ATTESA and versione.file_path:
+            return versione
+    return None
 
 def _corsi_della_versione(versione):
     """I corsi esteri della versione, con le equivalenze gia' caricate.
@@ -153,11 +163,16 @@ def elenco_pratiche():
     le_altre = []
 
     for pratica in pratiche:
-        riga = {"pratica": pratica, "giorni": _da_quando_aspetta(pratica)}
-        if pratica.stato in DA_DECIDERE:
-            da_decidere.append(riga)
-        else:
-            le_altre.append(riga)
+        proposta = _proposta_da_valutare(pratica)
+        tocca_a_me = (proposta is not None
+                      or pratica.stato == StatoPratica.IN_RICONOSCIMENTO_ESAMI)
+
+        giorni = None
+        if proposta is not None:
+            giorni = (dt.date.today() - proposta.data_caricamento).days
+
+        riga = {"pratica": pratica, "giorni": giorni}
+        (da_decidere if tocca_a_me else le_altre).append(riga)
 
     # Le piu' ferme in cima: sono quelle che rischiano di essere dimenticate.
     da_decidere.sort(key=lambda r: r["giorni"] or 0, reverse=True)
@@ -193,6 +208,7 @@ def valuta_la(id_pratica: int):
         corsi=_corsi_della_versione(versione),
         corsi_interni=[],        # il docente non aggiunge righe
         sola_lettura=True,
+        puo_decidere=True
     )
 
 
@@ -261,7 +277,8 @@ def rifiuta_la(id_pratica: int):
     versione.data_decisione = dt.date.today()
     db.session.flush()
 
-    pratica.stato = StatoPratica.APERTA
+    if pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA:
+        pratica.stato = StatoPratica.APERTA
 
     try:
         db.session.commit()

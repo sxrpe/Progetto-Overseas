@@ -75,7 +75,7 @@
             <div class="d-inline-flex gap-2">
               <a href="{{ url_for('pratiche.dettaglio', id_pratica=r.pratica.id) }}"
                  class="btn btn-sm btn-outline-secondary">Apri pratica</a>
-              {% if r.pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA %}
+              {% if r.pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA and mostra_attesa %}
                 <a href="{{ url_for('docente.valuta_la', id_pratica=r.pratica.id) }}"
                    class="btn btn-sm btn-primary">Valuta il piano</a>
               {% endif %}
