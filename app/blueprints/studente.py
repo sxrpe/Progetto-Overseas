@@ -188,6 +188,15 @@ def _bozza_aperta(pratica: Pratica):
         .where(LearningAgreement.esito == EsitoDocumento.IN_ATTESA)
     )
     return versione
+def _versione_approvata(pratica: Pratica):
+    """L'ultima versione approvata, da cui copiare i corsi per una modifica."""
+    migliore = None
+    for v in pratica.learning_agreements:
+        if v.esito == EsitoDocumento.APPROVATO:
+            if migliore is None or v.numero_versione > migliore.numero_versione:
+                migliore = v
+    return migliore
+
 def _corso_esterno_dello_studente(id_map):
     """Carica il corso esterno, verificando che appartenga a chi lo chiede."""
     corso = db.session.get(CorsoEsterno, id_map)
@@ -206,7 +215,7 @@ def _pratica_dello_studente(id_pratica):
     esigi_modifica(pratica)
     return pratica
 # ============================================================================
-# PAGINA DI BASE : MAPPING LEARNIN E AGREEMENTS
+# PAGINA DI BASE/CREAZIONE LA : MAPPING LEARNIN E AGREEMENTS
 # ============================================================================
 
 # La pagina della mappatura.
@@ -224,23 +233,36 @@ def nuovo_la(id_pratica: int):
     versione = _bozza_aperta(pratica)
 
     # Gestione nessuna bozza: crearne una nuova
+    # Gestione nessuna bozza: crearne una nuova
     if versione is None:
-        # Prende il numero dell'ultima versione il or 0 consente se la risposta é NULL = None
-        # in python None or 0 scrive 0
         ultimo = db.session.scalar(
             sa.select(sa.func.max(LearningAgreement.numero_versione))
             .where(LearningAgreement.pratica_id == pratica.id)
         ) or 0
 
-        # Creiamo un'ogetto della Bozza
-        versione = LearningAgreement(
-            pratica_id=pratica.id,
-            numero_versione=ultimo + 1,
-        )
+        versione = LearningAgreement(pratica_id=pratica.id, numero_versione=ultimo + 1)
         db.session.add(versione)
+
+        vecchia_versione = _versione_approvata(pratica)
+        if vecchia_versione:
+            db.session.flush()  # Fa esistere l'ID della nuova versione
+            for c_vecchio in _corsi_della_versione(vecchia_versione):
+                c_nuovo = CorsoEsterno(
+                    codice=c_vecchio.codice, titolo=c_vecchio.titolo,
+                    crediti=c_vecchio.crediti, learning_agreement_id=versione.id
+                )
+                for eq_vecchia in c_vecchio.equivalenze:
+                    c_nuovo.equivalenze.append(Equivalenza(corso_interno_id=eq_vecchia.corso_interno_id))
+                db.session.add(c_nuovo)
+
+        # SALVA TUTTO NEL DATABASE
         db.session.commit()
+
+        # ORA CARICA I CORSI APPENA SALVATI, INVECE DI PASSARE []
+        corsi_salvati = _corsi_della_versione(versione)
+
         return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
-                               corsi=[], corsi_interni=corsi_interni, sola_lettura=False, puo_decidere=False)
+                               corsi=corsi_salvati, corsi_interni=corsi_interni, sola_lettura=False, puo_decidere=False)
     else:
         corsi = db.session.scalars(
             sa.select(CorsoEsterno)
@@ -255,6 +277,29 @@ def nuovo_la(id_pratica: int):
         return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
                                corsi=corsi,corsi_interni=corsi_interni, sola_lettura=False, puo_decidere=False)
 
+
+# ============================================================================
+# SCARTARE LA BOZZA DI UN LA
+# ============================================================================
+
+
+@studente_bp.route("/pratiche/<int:id_pratica>/la/scarta", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def scarta_bozza(id_pratica: int):
+    """Elimina una bozza in lavorazione (ancora senza file caricato)."""
+    pratica = _pratica_dello_studente(id_pratica)
+    versione = _bozza_aperta(pratica)
+
+    # Si può scartare solo se c'è una bozza IN_ATTESA e il PDF NON è ancora stato caricato
+    if versione is not None and versione.file_path is None:
+        db.session.delete(versione)
+        db.session.commit()
+        flash("La bozza del Learning Agreement è stata annullata ed eliminata.", "success")
+    else:
+        flash("Impossibile scartare questo documento.", "danger")
+
+    return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
 # ============================================================================
 # GESTIONE MAPPING : CREAZIONE

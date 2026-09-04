@@ -77,7 +77,8 @@ def _versione_approvata(pratica: Pratica):
 def _versione_in_attesa(pratica: Pratica):
     """La versione su cui il docente non ha ancora deciso, o None."""
     for versione in pratica.learning_agreements:
-        if versione.esito == EsitoDocumento.IN_ATTESA:
+        # AGGIUNTO IL CONTROLLO SUL FILE_PATH
+        if versione.esito == EsitoDocumento.IN_ATTESA and versione.file_path is not None:
             return versione
     return None
 

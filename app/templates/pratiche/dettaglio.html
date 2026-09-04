@@ -152,25 +152,21 @@
   <span>{{ avviso }}</span>
 </div>
 
-
 {# ================================================================= #}
 {#  LE AZIONI                                                        #}
-{#  Una scheda sola, sempre nello stesso punto, con dentro solo cio' #}
-{#  che chi guarda puo' davvero fare adesso.                         #}
-{#                                                                    #}
-{#  NASCONDERE UN PULSANTE NON E' UN CONTROLLO DI SICUREZZA: ogni    #}
-{#  rotta rifa' le sue verifiche, e il database ha l'ultima parola.  #}
 {# ================================================================= #}
 {% set sono_lo_studente = current_user.id == pratica.studente_id %}
 {% set sono_il_docente  = current_user.id == pratica.docente_id %}
 {% set sono_ufficio     = current_user.ruolo == Ruolo.UFFICIO %}
 
+{# Creiamo due comodissime variabili per capire lo stato della proposta #}
+{% set e_proposta_inviata = in_attesa is not none and in_attesa.file_path is not none %}
+{% set e_bozza = in_attesa is not none and in_attesa.file_path is none %}
+
 {% set mostra_azioni =
-     (sono_lo_studente and pratica.stato in [StatoPratica.APERTA,
-                                             StatoPratica.MOBILITA_IN_CORSO])
-     or (sono_il_docente and e_proposta and versione.file_path)
-     or (sono_ufficio and pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA
-         and not e_proposta and approvata) %}
+     (sono_lo_studente and pratica.stato in [StatoPratica.APERTA, StatoPratica.MOBILITA_IN_CORSO] and not e_proposta_inviata)
+     or (sono_il_docente and e_proposta_inviata)
+     or (sono_ufficio and pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA and not e_proposta_inviata and approvata) %}
 
 {% if mostra_azioni %}
 <div class="card border-{{ colore }} mb-4">
@@ -178,50 +174,58 @@
   <div class="card-body d-flex gap-2 flex-wrap align-items-center">
 
     {# --- STUDENTE: compila o modifica il piano --- #}
-    {% if sono_lo_studente and pratica.stato == StatoPratica.APERTA %}
-      <a href="{{ url_for('studente.nuovo_la', id_pratica=pratica.id) }}"
-         class="btn btn-primary">
-        {% if versione %}Riprendi il Learning Agreement{% else %}Compila il Learning Agreement{% endif %}
-      </a>
-      <span class="form-text mb-0">
-        Aggiungi gli insegnamenti e le equivalenze, poi firma e invia.
-      </span>
-    {% endif %}
+    {% if sono_lo_studente and pratica.stato in [StatoPratica.APERTA, StatoPratica.MOBILITA_IN_CORSO] and not e_proposta_inviata %}
 
-    {% if sono_lo_studente and pratica.stato == StatoPratica.MOBILITA_IN_CORSO %}
       <a href="{{ url_for('studente.nuovo_la', id_pratica=pratica.id) }}"
-         class="btn btn-outline-primary">Proponi una modifica al piano</a>
-      <span class="form-text mb-0">
-        Se il programma è cambiato, proponi una nuova versione: quella
-        approvata resta valida finché il docente non decide.
+         class="btn {% if e_bozza %}btn-primary{% else %}btn-outline-primary{% endif %}">
+        {% if e_bozza %}
+          Riprendi la stesura del piano
+        {% elif pratica.stato == StatoPratica.MOBILITA_IN_CORSO %}
+          Proponi una modifica al piano
+        {% else %}
+          Compila il Learning Agreement
+        {% endif %}
+      </a>
+
+      {# Bottone scarta se la bozza esiste ma non è inviata #}
+      {% if e_bozza %}
+        <form method="post" action="{{ url_for('studente.scarta_bozza', id_pratica=pratica.id) }}" class="d-inline">
+          <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Vuoi davvero scartare questa bozza?');">
+            Scarta bozza
+          </button>
+        </form>
+      {% endif %}
+
+      <span class="form-text mb-0 w-100 mt-2">
+        {% if pratica.stato == StatoPratica.MOBILITA_IN_CORSO %}
+          Se il programma è cambiato, proponi una nuova versione. Quella approvata resta valida finché il docente non decide.
+        {% else %}
+          Aggiungi gli insegnamenti e le equivalenze, poi firma e invia.
+        {% endif %}
       </span>
     {% endif %}
 
     {# --- DOCENTE: valuta la proposta --- #}
-    {% if sono_il_docente and e_proposta %}
+    {% if sono_il_docente and e_proposta_inviata %}
       <a href="{{ url_for('docente.valuta_la', id_pratica=pratica.id) }}"
          class="btn btn-primary">Valuta il piano proposto</a>
-      <span class="form-text mb-0">
+      <span class="form-text mb-0 w-100 mt-2">
         Apri il piano, scarica il documento firmato e decidi.
       </span>
     {% endif %}
 
     {# --- UFFICIO: verifica pre-partenza --- #}
-    {% if sono_ufficio and pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA
-          and not e_proposta and approvata %}
-      <form method="post"
-            action="{{ url_for('ufficio.verifica_pre_partenza', id_pratica=pratica.id) }}">
-        <button type="submit" class="btn btn-primary">
-          Registra la verifica pre-partenza
-        </button>
+    {% if sono_ufficio and pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA and not e_proposta_inviata and approvata %}
+      <form method="post" action="{{ url_for('ufficio.verifica_pre_partenza', id_pratica=pratica.id) }}">
+        <button type="submit" class="btn btn-primary">Registra la verifica pre-partenza</button>
       </form>
-      <a href="{{ url_for('ufficio.vedi_la', id_pratica=pratica.id) }}"
-         class="btn btn-outline-secondary">Rivedi il piano</a>
+      <a href="{{ url_for('ufficio.vedi_la', id_pratica=pratica.id) }}" class="btn btn-outline-secondary">Rivedi il piano</a>
     {% endif %}
 
   </div>
 </div>
 {% endif %}
+
 
 
 {# ================================================================= #}
@@ -368,78 +372,83 @@
   </div>
 </div>
 
-
 {# ================================================================= #}
-{#  LEARNING AGREEMENT                                               #}
-{#  Solo la versione che conta adesso. Le altre dietro un pulsante.  #}
+{#  LEARNING AGREEMENT: PIANO OPERATIVO (V1)                         #}
 {# ================================================================= #}
-<div class="card mb-3">
+{% if approvata %}
+<div class="card mb-3 border-success">
   <div class="card-header fw-semibold d-flex align-items-center gap-2 flex-wrap">
     Learning Agreement
-    {% if versione %}
-      <span class="text-body-secondary fw-normal small">
-        versione {{ versione.numero_versione }}</span>
-      {{ esito_documento(versione.esito) }}
-      {% if e_proposta %}
-        <span class="badge text-bg-warning">proposta in valutazione</span>
-      {% elif approvata and versione.id == approvata.id %}
-        <span class="badge text-bg-success">piano operativo</span>
-      {% endif %}
-    {% endif %}
-
-    {% if versione and versione.file_path %}
-      <a href="{{ url_for('pratiche.scarica_la', id_versione=versione.id) }}"
-         class="btn btn-sm btn-outline-secondary ms-auto">Scarica il documento</a>
+    <span class="text-body-secondary fw-normal small">versione {{ approvata.numero_versione }}</span>
+    <span class="badge text-bg-success">piano operativo</span>
+    {% if approvata.file_path %}
+      <a href="{{ url_for('pratiche.scarica_la', id_versione=approvata.id) }}" class="btn btn-sm btn-outline-secondary ms-auto">Scarica documento</a>
     {% endif %}
   </div>
-
   <div class="card-body">
-    {% if not versione %}
-      <p class="text-body-secondary mb-0 small">
-        Nessuna versione del piano è ancora stata creata.
-      </p>
+    <div class="small text-body-secondary mb-3">
+      Approvato il {{ data(approvata.data_decisione) }}
+    </div>
+    {{ tabella_corsi(corsi_approvata) }}
+  </div>
+</div>
+{% endif %}
 
+{# ================================================================= #}
+{#  LEARNING AGREEMENT: PROPOSTA O BOZZA IN CORSO (V3)               #}
+{# ================================================================= #}
+{% if in_attesa %}
+<div class="card mb-3 {% if e_proposta_inviata %}border-warning{% else %}border-secondary{% endif %}">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2 flex-wrap">
+    {% if approvata %}Proposta di modifica{% else %}Learning Agreement{% endif %}
+    <span class="text-body-secondary fw-normal small">versione {{ in_attesa.numero_versione }}</span>
+
+    {% if e_proposta_inviata %}
+      <span class="badge text-bg-warning">in valutazione</span>
+      <a href="{{ url_for('pratiche.scarica_la', id_versione=in_attesa.id) }}" class="btn btn-sm btn-outline-secondary ms-auto">Scarica documento</a>
     {% else %}
-      <div class="small text-body-secondary mb-3">
-        Caricata il {{ data(versione.data_caricamento) }}
-        {% if versione.data_decisione %}
-          · decisione del {{ data(versione.data_decisione) }}
-        {% endif %}
-        {% if not versione.file_path %}
-          · <span class="text-warning-emphasis">documento non ancora caricato</span>
-        {% endif %}
-      </div>
-
-      {% if versione.motivazione and versione.esito == EsitoDocumento.RIFIUTATO %}
-        <div class="alert alert-danger py-2 small">
-          <span class="fw-semibold">Motivazione del rifiuto:</span>
-          {{ versione.motivazione }}
-        </div>
-      {% endif %}
-
-      {% if corsi %}
-        {{ tabella_corsi(corsi) }}
-      {% else %}
-        <p class="small text-body-secondary mb-0">
-          Nessun insegnamento inserito in questa versione.
-        </p>
-      {% endif %}
+      <span class="badge text-bg-secondary">bozza da inviare</span>
     {% endif %}
   </div>
-
-  {# --- le versioni precedenti, caricate solo su richiesta --- #}
-  {% if altre_versioni > 0 %}
-    <div class="card-footer bg-transparent">
-      <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none"
-              id="btn-altre-versioni"
-              data-url="{{ url_for('pratiche.versioni_vecchie', id_pratica=pratica.id) }}">
-        Altre versioni ({{ altre_versioni }})
-        <span id="freccia-versioni">&#9662;</span>
-      </button>
-      <div id="altre-versioni" class="mt-3"></div>
+  <div class="card-body">
+    <div class="small text-body-secondary mb-3">
+      Creata il {{ data(in_attesa.data_caricamento) }}
+      {% if not e_proposta_inviata %}— <span class="text-warning-emphasis">documento non ancora caricato</span>{% endif %}
     </div>
-  {% endif %}
+
+    {% if corsi_in_attesa %}
+      {{ tabella_corsi(corsi_in_attesa) }}
+    {% else %}
+      <p class="small text-body-secondary mb-0">Nessun insegnamento ancora inserito.</p>
+    {% endif %}
+  </div>
 </div>
+{% endif %}
+
+{# ================================================================= #}
+{#  SE NON ESISTE ANCORA NIENTE                                      #}
+{# ================================================================= #}
+{% if not approvata and not in_attesa %}
+<div class="card mb-3">
+  <div class="card-header fw-semibold">Learning Agreement</div>
+  <div class="card-body">
+    <p class="text-body-secondary mb-0 small">Nessuna versione del piano è ancora stata creata.</p>
+  </div>
+</div>
+{% endif %}
+
+{# --- LE VERSIONI RIFIUTATE (V2) VANNO QUI, SOTTO AI BOX PRINCIPALI --- #}
+{% if altre_versioni > 0 %}
+  <div class="mb-4 mt-2">
+    <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none"
+            id="btn-altre-versioni"
+            data-url="{{ url_for('pratiche.versioni_vecchie', id_pratica=pratica.id) }}">
+      Mostra lo storico delle versioni rifiutate ({{ altre_versioni }})
+      <span id="freccia-versioni">&#9662;</span>
+    </button>
+    <div id="altre-versioni" class="mt-3"></div>
+  </div>
+{% endif %}
 
 
 {# ================================================================= #}

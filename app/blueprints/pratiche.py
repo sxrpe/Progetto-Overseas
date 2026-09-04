@@ -176,30 +176,29 @@ def dettaglio(id_pratica: int):
     """Mostra una pratica, a chi ha diritto di vederla.
 
     QUALE VERSIONE DEL PIANO SI MOSTRA
-        Quella che conta adesso: se c'e' una proposta in attesa e' lei, la
-        decisione riguarda quella; altrimenti l'ultima approvata, che e' il
-        piano operativo. Le altre restano nascoste dietro "Altre versioni".
+        mostriamo sempre l'ultima in modifica se esiste, e quella approvata se esista, dobbiamo recuperare entrambe
     """
     pratica = _carica_pratica(id_pratica)
 
     in_attesa = _versione_in_attesa(pratica)
     approvata = _versione_approvata(pratica)
-    versione = in_attesa or approvata
+    # versione = in_attesa or approvata
 
     tocca_a_me, avviso = _cosa_fare(pratica)
 
-    # Quante versioni restano fuori: serve solo a decidere se disegnare il
-    # pulsante "Altre versioni". Un count, non un caricamento.
-    quante_versioni = len(pratica.learning_agreements)
-    altre = quante_versioni - (1 if versione is not None else 0)
+    # Calcoliamo quante versioni vanno nello storico (tutte tranne quelle mostrate sopra)
+    mostrate = 0
+    if in_attesa: mostrate += 1
+    if approvata: mostrate += 1
+    altre = len(pratica.learning_agreements) - mostrate
 
     return render_template(
         "pratiche/dettaglio.html",
         pratica=pratica,
-        versione=versione,
-        corsi=_corsi_della_versione(versione),
-        e_proposta=in_attesa is not None,
-        approvata=approvata,
+        approvata=approvata,  # <-- PASSIAMO IL PIANO OPERATIVO
+        corsi_approvata=_corsi_della_versione(approvata),
+        in_attesa=in_attesa,  # <-- PASSIAMO LA BOZZA/PROPOSTA
+        corsi_in_attesa=_corsi_della_versione(in_attesa),
         altre_versioni=altre,
         tocca_a_me=tocca_a_me,
         avviso=avviso,
@@ -216,10 +215,11 @@ def versioni_vecchie(id_pratica: int):
     JavaScript, e lo script deve solo infilare il testo nel contenitore.
     """
     pratica = _carica_pratica(id_pratica)
-
     in_attesa = _versione_in_attesa(pratica)
-    mostrata = in_attesa or _versione_approvata(pratica)
-    id_mostrata = mostrata.id if mostrata else None
+    approvata = _versione_approvata(pratica)
+
+    # ID delle versioni già disegnate in alto (da NON rimettere nello storico)
+    id_esclusi = [v.id for v in (in_attesa, approvata) if v is not None]
 
     versioni = db.session.scalars(
         sa.select(LearningAgreement)
@@ -233,7 +233,7 @@ def versioni_vecchie(id_pratica: int):
     return render_template(
         "pratiche/_versioni_vecchie.html",
         pratica=pratica,
-        versioni=[v for v in versioni if v.id != id_mostrata],
+        versioni=[v for v in versioni if v.id not in id_esclusi],
     )
 
 
