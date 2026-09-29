@@ -27,7 +27,6 @@ LE QUATTRO REGOLE SUI FILE CARICATI
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import uuid
 from pathlib import Path
 
@@ -120,32 +119,7 @@ def elimina_documento(nome_su_disco: str | None) -> None:
 
 
 # ===========================================================================
-#  PARTE 2 — L'IMPRONTA DEI DATI
-# ===========================================================================
-
-def impronta_piano(pratica, versione, corsi) -> str:
-    """Impronta crittografica del contenuto del piano.
-
-    Cambia se cambia un qualsiasi valore: codice, titolo, crediti o
-    equivalenza. Stampata in fondo al PDF, permette di verificare che il
-    documento firmato corrisponda ai dati ancora presenti nel database.
-
-    L'ORDINAMENTO E' OBBLIGATORIO
-        Gli stessi dati letti in ordine diverso devono produrre la stessa
-        impronta, altrimenti non certifica niente.
-    """
-    pezzi = [f"{pratica.codice_pratica}|v{versione.numero_versione}"]
-
-    for c in sorted(corsi, key=lambda x: x.codice):
-        interni = ",".join(sorted(e.corso_interno.codice for e in c.equivalenze))
-        pezzi.append(f"{c.codice}|{c.titolo}|{c.crediti}|{interni}")
-
-    testo = "\n".join(pezzi)
-    return hashlib.sha256(testo.encode("utf-8")).hexdigest()[:16].upper()
-
-
-# ===========================================================================
-#  PARTE 3 — IL PDF
+#  PARTE 2 — IL PDF
 # ===========================================================================
 
 VERDE       = (15, 90, 82)
@@ -325,7 +299,7 @@ def genera_pdf_la(pratica, versione, corsi) -> bytes:
     pdf.cell(10, 14, "")
     pdf.cell(85, 14, "", border="B", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    # ---------- pie' di pagina con l'impronta ----------
+    # ---------- pie' di pagina ----------
     pdf.set_y(-30)
     pdf.set_draw_color(*GRIGIO)
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())
@@ -339,17 +313,5 @@ def genera_pdf_la(pratica, versione, corsi) -> bytes:
     pdf.cell(0, 4, _l1(f"Documento generato automaticamente il {ora} "
                        f"dal sistema Overseas."),
              new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    pdf.set_x(15)
-    pdf.set_font("Helvetica", "B", 7)
-    pdf.cell(0, 4, _l1(f"Impronta dei dati: "
-                       f"{impronta_piano(pratica, versione, corsi)}"),
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    pdf.set_x(15)
-    pdf.set_font("Helvetica", "", 7)
-    pdf.cell(0, 4, _l1("L'impronta cambia se i dati del piano vengono "
-                       "modificati: permette di verificare che il documento "
-                       "firmato corrisponda ai dati registrati."))
 
     return bytes(pdf.output())

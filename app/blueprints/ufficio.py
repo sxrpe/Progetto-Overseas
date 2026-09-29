@@ -95,12 +95,12 @@ def _corsi_della_versione(versione):
 
 
 def _id_pronte_per_chiusura() -> set[int]:
-    """Gli id delle pratiche che si possono chiudere.
+    """Gli id delle pratiche che l'ufficio puo' chiudere.
 
-    Arriva dalla vista SQL v_pratiche_pronte_per_chiusura, che incrocia tre
-    condizioni: stato IN_RICONOSCIMENTO_ESAMI, nessun esame ancora da
-    valutare, Transcript caricato. Rifarlo in Python significherebbe
-    riscrivere qui una regola che nel database e' gia' espressa e verificata.
+    La vista gia' esige tre cose: stato IN_RICONOSCIMENTO_ESAMI, Transcript
+    caricato, nessun esame rimasto NON_VALUTATO. Zero esami inseriti rientra,
+    perche' non c'e' nulla in sospeso. Il controllo sul PDF non sta qui:
+    lo fa l'ufficio dalla scheda, dove con zero esami compare l'avviso.
     """
     righe = db.session.execute(
         sa.text("SELECT pratica_id FROM v_pratiche_pronte_per_chiusura")
@@ -251,10 +251,9 @@ def verifica_pre_partenza(id_pratica: int):
 def chiudi_pratica(id_pratica: int):
     """Chiude la pratica.
 
-    NON E' ANCORA PROVABILE: serve una pratica in IN_RICONOSCIMENTO_ESAMI
-    con il Transcript caricato e tutti gli esami valutati, cioe' le fasi
-    che non sono ancora state scritte. La lascio qui perche' e' identica
-    alla verifica e il trigger fa lo stesso lavoro.
+    Il pulsante arriva se la vista dice che si puo': Transcript presente e
+    nessun esame ancora da valutare, anche quando di esami non ne e' stato
+    inserito nessuno. Il trigger rifa' lo stesso controllo in scrittura.
 
     Dopo la chiusura trg_pratica_immutabile rende la riga di sola lettura
     per tutti, ed e' quello che rende la chiusura un atto definitivo.

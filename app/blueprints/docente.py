@@ -34,13 +34,13 @@ COSA SUCCEDE AL RIFIUTO
 import datetime as dt
 
 import sqlalchemy as sa
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
 from app.enums import EsitoDocumento, Ruolo, StatoPratica
 from app.extensions import db
-from app.models import CorsoEsterno, Equivalenza, LearningAgreement, Pratica
+from app.models import CorsoEsterno, Equivalenza, LearningAgreement, Pratica, Esame
 from app.security import ruolo_richiesto
 
 docente_bp = Blueprint("docente", __name__)
@@ -133,6 +133,22 @@ def _da_quando_aspetta(pratica: Pratica):
     return (dt.date.today() - dal).days
 
 
+def _ci_sono_esami_da_valutare(pratica):
+    """Verifica se lo studente ha caricato voti che il docente non ha ancora valutato."""
+    if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:
+        return False
+
+    # Fa una query veloce: Conta se ci sono esami 'NON_VALUTATO' nel piano approvato
+    n = db.session.scalar(
+        sa.select(sa.func.count(Esame.id))
+        .join(CorsoEsterno)
+        .join(LearningAgreement)
+        .where(LearningAgreement.pratica_id == pratica.id)
+        .where(LearningAgreement.esito == EsitoDocumento.APPROVATO)
+        .where(Esame.esito_riconoscimento == 'NON_VALUTATO')
+    )
+    return (n or 0) > 0
+
 # ============================================================================
 # ELENCO
 # ============================================================================
@@ -165,7 +181,7 @@ def elenco_pratiche():
     for pratica in pratiche:
         proposta = _proposta_da_valutare(pratica)
         tocca_a_me = (proposta is not None
-                      or pratica.stato == StatoPratica.IN_RICONOSCIMENTO_ESAMI)
+                      or _ci_sono_esami_da_valutare(pratica))
 
         giorni = None
         if proposta is not None:
@@ -294,3 +310,70 @@ def rifiuta_la(id_pratica: int):
     flash("Learning Agreement rifiutato. Lo studente potrà proporne "
           "una nuova versione.", "warning")
     return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+
+# ============================================================================
+# VALUTAZIONE ESAMI : UTILITY
+# ============================================================================
+
+def _versione_approvata(pratica: Pratica):
+    """Cerca l'ultima versione approvata del piano."""
+    migliore = None
+    for versione in pratica.learning_agreements:
+        if versione.esito == EsitoDocumento.APPROVATO:
+            if migliore is None or versione.numero_versione > migliore.numero_versione:
+                migliore = versione
+    return migliore
+
+# ============================================================================
+# VALUTAZIONE ESAMI : MOSTRA
+# ============================================================================
+@docente_bp.route("/pratiche/<int:id_pratica>/esami", methods=["GET"])
+@login_required
+@ruolo_richiesto(Ruolo.DOCENTE)
+def valuta_esami(id_pratica: int):
+    """Mostra la pagina di valutazione esami al docente."""
+    pratica = _pratica_del_docente(id_pratica)
+
+    if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:
+        flash("La pratica non è nella fase di riconoscimento esami.", "warning")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    approvata = _versione_approvata(pratica)
+    corsi = _corsi_della_versione(approvata) if approvata else []
+
+    # Carica solo gli esami effettivamente sostenuti
+    esami = {c.id: c.esame for c in corsi if c.esame}
+
+    return render_template("pratiche/esami.html", pratica=pratica, corsi=corsi, esami=esami, valuta=True)
+
+# ============================================================================
+# VALUTAZIONE ESAMI : VALUTA
+# ============================================================================
+@docente_bp.route("/pratiche/<int:id_pratica>/esami/<int:id_corso>/valuta", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.DOCENTE)
+def salva_valutazione_esame(id_pratica: int, id_corso: int):
+    """Registra la scelta del docente su un singolo esame (Chiamata JSON AJAX)."""
+    pratica = _pratica_del_docente(id_pratica)
+
+    if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:
+        return jsonify(ok=False, errore="La pratica non è in fase di riconoscimento."), 403
+
+    corso = db.session.get(CorsoEsterno, id_corso)
+    if not corso or corso.learning_agreement.pratica_id != pratica.id or not corso.esame:
+        return jsonify(ok=False, errore="Esame da valutare non trovato."), 404
+
+    esito = request.form.get("esito")
+    if esito not in ['ACCETTATO', 'RIFIUTATO']:
+        return jsonify(ok=False, errore="Esito non valido."), 400
+
+    corso.esame.esito_riconoscimento = esito
+    corso.esame.data_riconoscimento = dt.date.today()
+
+    try:
+        db.session.commit()
+        return jsonify(ok=True)
+    except sa.exc.DatabaseError:
+        db.session.rollback()
+        return jsonify(ok=False, errore="Errore nel salvataggio della valutazione."), 400

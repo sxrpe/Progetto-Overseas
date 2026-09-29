@@ -469,11 +469,6 @@ class Pratica(db.Model):
             " OR data_inizio_effettivo <= data_fine_effettiva",
             name="ck_pratica_ord_inizio_fine",
         ),
-        sa.CheckConstraint(
-            "data_fine_effettiva IS NULL OR chiusa_il IS NULL"
-            " OR data_fine_effettiva <= chiusa_il",
-            name="ck_pratica_ord_fine_chiusura",
-        ),
 
         # ------------------------------------------------------------------
         # DALLO STATO AI FATTI

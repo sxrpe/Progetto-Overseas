@@ -44,9 +44,9 @@ from flask import (Blueprint, abort, flash, jsonify, redirect,
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
-from app.enums import Ruolo, Periodo, EsitoDocumento, StatoPratica
+from app.enums import Ruolo, Periodo, EsitoDocumento, EsitoRiconoscimento, StatoPratica
 from app.extensions import db
-from app.models import Pratica, Istituto, Utente, CorsoInterno,CorsoEsterno, LearningAgreement, Equivalenza
+from app.models import Pratica, Istituto, Utente, CorsoInterno,CorsoEsterno, LearningAgreement, Equivalenza, Transcript, Esame
 from app.security import ruolo_richiesto, esigi_accesso, esigi_modifica
 from app.documenti import (DocumentoNonValido, elimina_documento,
                            genera_pdf_la, salva_documento)
@@ -111,7 +111,8 @@ def nuova_pratica():
     if request.method == "GET":
        # "**_dati_modulo() esegue e spacchetta il dizionario "
         return render_template("studente/nuova_pratica.html",**_dati_modulo(),
-                               anno_selected=None, periodo_selected=None,istituto_selected=None, docente_selected=None)
+                               anno_selected=None, periodo_selected=None,istituto_selected=None, docente_selected=None,
+                               note_selected=None)
     else:
         #"Gestiamo l'invio del FORM"
 
@@ -124,12 +125,13 @@ def nuova_pratica():
 
         istituto_selected = _intero("istituto_id")
         docente_selected = _intero("docente_id")
+        note_selected = (request.form.get("note") or "").strip() or None
 
         #"Gestione campi non completati correttamente"
         if None in (anno_selected, periodo_selected,
                     istituto_selected, docente_selected):
             flash("Compila tutti i campi.", "danger")
-            return render_template("studente/nuova_pratica.html",**_dati_modulo(),periodo_selected=periodo_selected, istituto_selected=istituto_selected, anno_selected=anno_selected, docente_selected=docente_selected)
+            return render_template("studente/nuova_pratica.html",**_dati_modulo(),periodo_selected=periodo_selected, istituto_selected=istituto_selected, anno_selected=anno_selected, docente_selected=docente_selected, note_selected=note_selected)
 
         #"Formattazione del nome della Pratica : sa.func.count() = count(*)"
         quante = db.session.scalar(
@@ -148,6 +150,7 @@ def nuova_pratica():
             istituto_id=istituto_selected,
             docente_id=docente_selected,
             studente_id=current_user.id,
+            note=note_selected,
         )
         db.session.add(pratica)
 
@@ -160,7 +163,8 @@ def nuova_pratica():
                                    anno_selected=anno_selected,
                                    periodo_selected=periodo_selected,
                                    istituto_selected=istituto_selected,
-                                   docente_selected=docente_selected)
+                                   docente_selected=docente_selected,
+                                   note_selected=note_selected)
         except sa.exc.DatabaseError as errore:
             db.session.rollback()
             flash(str(errore.orig).split("\n")[0], "danger")
@@ -168,7 +172,8 @@ def nuova_pratica():
                                    anno_selected=anno_selected,
                                    periodo_selected=periodo_selected,
                                    istituto_selected=istituto_selected,
-                                   docente_selected=docente_selected)
+                                   docente_selected=docente_selected,
+                                   note_selected=note_selected)
         flash(f"Pratica {pratica.codice_pratica} creata.", "success")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
@@ -535,6 +540,11 @@ def registra_inizio(id_pratica: int):
         flash("Data di arrivo non valida.", "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
+    # L'arrivo è un fatto già accaduto: al massimo oggi, come il rientro.
+    if giorno > dt.date.today():
+        flash("La data di arrivo non può essere successiva a oggi.", "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
     pratica.data_inizio_effettivo = giorno
     pratica.stato = StatoPratica.MOBILITA_IN_CORSO
 
@@ -553,24 +563,153 @@ def registra_inizio(id_pratica: int):
     return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
 
+
+# ============================================================================
+# GESTIONE ESAMI
+# ============================================================================
+
+@studente_bp.route("/pratiche/<int:id_pratica>/esami", methods=["GET"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def vedi_esami(id_pratica: int):
+    """Mostra la pagina di inserimento voti allo studente."""
+    # Uso get() + esigi_accesso invece di _pratica_dello_studente per bypassare
+    # esigi_modifica() che bloccherebbe la pagina se la pratica non è APERTA.
+    pratica = db.session.get(Pratica, id_pratica)
+    if pratica is None:
+        abort(404)
+    esigi_accesso(pratica)
+
+    if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:
+        flash("La pratica non è nella fase di riconoscimento esami.", "warning")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    approvata = _versione_approvata(pratica)
+    corsi = _corsi_della_versione(approvata) if approvata else []
+
+    esami = {c.id: c.esame for c in corsi if c.esame}
+
+    if corsi and all(
+        c.esame is not None
+        and c.esame.esito_riconoscimento != EsitoRiconoscimento.NON_VALUTATO
+        for c in corsi
+    ):
+        flash("I voti sono già stati valutati. Si attende la chiusura dell'ufficio.", "info")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    return render_template("pratiche/esami.html", pratica=pratica, corsi=corsi, esami=esami, valuta=False)
+
+# ============================================================================
+# GESTIONE ESAMI : CREA/MODIFICA
+# ============================================================================
+
+@studente_bp.route("/pratiche/<int:id_pratica>/esami/<int:id_corso>/salva", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def salva_esame(id_pratica: int, id_corso: int):
+    """Salva o aggiorna il voto di un esame (Chiamata JSON AJAX)."""
+    pratica = db.session.get(Pratica, id_pratica)
+    esigi_accesso(pratica)
+
+    if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:
+        return jsonify(ok=False, errore="La pratica non è in fase di riconoscimento."), 403
+
+    corso = db.session.get(CorsoEsterno, id_corso)
+    if not corso or corso.learning_agreement.pratica_id != pratica.id:
+        return jsonify(ok=False, errore="Insegnamento non trovato."), 404
+
+    voto = _intero("voto")
+    try:
+        data_esame = dt.date.fromisoformat(request.form.get("data_esame", ""))
+    except ValueError:
+        return jsonify(ok=False, errore="Data non valida."), 400
+
+    # Il riconoscimento usa la data del giorno in cui il docente decide.
+    # Una data futura non potrebbe mai essere minore o uguale a quella.
+    if data_esame > dt.date.today():
+        return jsonify(
+            ok=False,
+            errore="La data dell'esame non può essere successiva a oggi.",
+        ), 400
+
+    if not voto or voto < 18 or voto > 31:
+        return jsonify(ok=False, errore="Il voto deve essere compreso tra 18 e 31."), 400
+
+    if (corso.esame and corso.esame.esito_riconoscimento
+            in (EsitoRiconoscimento.ACCETTATO, EsitoRiconoscimento.RIFIUTATO)):
+        return jsonify(
+            ok=False,
+            errore="Il docente ha già deciso su questo voto e non si può più modificare.",
+        ), 403
+
+    # Se c'era già, lo aggiorno. Altrimenti lo creo.
+    if corso.esame:
+        corso.esame.voto = voto
+        corso.esame.data_esame = data_esame
+    else:
+        db.session.add(Esame(corso_esterno_id=corso.id, voto=voto, data_esame=data_esame))
+
+    try:
+        db.session.commit()
+        return jsonify(ok=True)
+    except sa.exc.DatabaseError:
+        db.session.rollback()
+        return jsonify(ok=False, errore="Errore di salvataggio nel database."), 400
+
+
+# ============================================================================
+# GESTIONE ESAMI : ELIMINA
+# ============================================================================
+
+@studente_bp.route("/pratiche/<int:id_pratica>/esami/<int:id_corso>/elimina", methods=["POST"])
+@login_required
+@ruolo_richiesto(Ruolo.STUDENTE)
+def elimina_esame(id_pratica: int, id_corso: int):
+    """Scarta un voto inserito (Chiamata JSON AJAX)."""
+    pratica = db.session.get(Pratica, id_pratica)
+    esigi_accesso(pratica)
+
+    if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:
+        return jsonify(ok=False, errore="La pratica non è in fase di riconoscimento."), 403
+
+    corso = db.session.get(CorsoEsterno, id_corso)
+    if not corso or corso.learning_agreement.pratica_id != pratica.id:
+        return jsonify(ok=False, errore="Insegnamento non trovato."), 404
+
+    if (corso.esame and corso.esame.esito_riconoscimento
+            in (EsitoRiconoscimento.ACCETTATO, EsitoRiconoscimento.RIFIUTATO)):
+        return jsonify(
+            ok=False,
+            errore="Il docente ha già deciso su questo voto e non si può più scartare.",
+        ), 403
+
+    if corso.esame:
+        db.session.delete(corso.esame)
+        try:
+            db.session.commit()
+        except sa.exc.DatabaseError:
+            db.session.rollback()
+            return jsonify(ok=False, errore="Errore di rete, riprova."), 400
+
+    return jsonify(ok=True)
+
+
+# ============================================================================
+# REGISTRA RIENTRO
+# ============================================================================
+
 @studente_bp.route("/pratiche/<int:id_pratica>/rientro", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def registra_rientro(id_pratica: int):
-    """Registra il rientro e carica il Transcript of Records.
-
-    L'ORDINE DELLE SCRITTURE
-        Il trigger sulla transizione verso IN_RICONOSCIMENTO_ESAMI conta le
-        righe in transcript per quella pratica. Se l'UPDATE su pratica
-        partisse per primo, il transcript non ci sarebbe ancora e il
-        controllo fallirebbe. Da qui il flush() prima di toccare lo stato.
-
-    IL FILE SU DISCO NON SEGUE IL ROLLBACK
-        salva_documento() ha gia' scritto sul disco quando arriva il commit.
-        Se il commit fallisce, il rollback annulla il database ma non il
-        file: va cancellato a mano, altrimenti si accumulano orfani.
-    """
+    """Registra il rientro e carica il Transcript of Records INSIEME."""
     pratica = _pratica_dello_studente(id_pratica)
+
+    # Il piano deve essere fermo: una bozza o una modifica ancora in
+    # attesa del docente non possono convivere con il Transcript.
+    if _bozza_aperta(pratica) is not None:
+        flash("Non puoi registrare il rientro: c'è ancora un piano in attesa.", "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
     try:
         giorno = dt.date.fromisoformat(request.form.get("data_fine_effettiva", ""))
@@ -578,19 +717,31 @@ def registra_rientro(id_pratica: int):
         flash("Data di rientro non valida.", "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
+    # Il rientro è un fatto già accaduto: al massimo oggi. Senza questo
+    # limite si poteva scrivere una data ancora avanti, e la chiusura
+    # dell'ufficio (che è sempre oggi) restava prima del rientro.
+    if giorno > dt.date.today():
+        flash("La data di rientro non può essere successiva a oggi.", "danger")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
     try:
+        # Salva il file PDF su disco
         nome_disco, nome_originale = salva_documento(request.files.get("documento"))
     except DocumentoNonValido as errore:
         flash(str(errore), "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
+    # 1. Aggiunge il Transcript al database
     db.session.add(Transcript(
         pratica_id=pratica.id,
         file_path=nome_disco,
         nome_file_originale=nome_originale,
     ))
-    db.session.flush()          # il trigger deve vederlo
 
+    # 2. FLUSH: La magia! Scrive il record temporaneamente così il trigger lo "vede"
+    db.session.flush()
+
+    # 3. Ora cambia lo stato. Il trigger scatta, controlla il Transcript, e lo trova!
     pratica.data_fine_effettiva = giorno
     pratica.stato = StatoPratica.IN_RICONOSCIMENTO_ESAMI
 
@@ -607,6 +758,5 @@ def registra_rientro(id_pratica: int):
         flash(str(errore.orig).split("\n")[0], "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
-    flash("Rientro registrato e Transcript caricato. "
-          "Ora puoi inserire i voti degli esami sostenuti.", "success")
+    flash("Rientro registrato e Transcript caricato. Ora puoi inserire i voti degli esami sostenuti.", "success")
     return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))

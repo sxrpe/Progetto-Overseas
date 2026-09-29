@@ -23,16 +23,18 @@ PERCHE' LE VERSIONI VECCHIE STANNO IN UNA ROTTA A PARTE
     lo script infila nella pagina al primo clic.
 """
 
+import datetime as dt
+
 import sqlalchemy as sa
-from flask import Blueprint, abort, render_template, send_file
+from flask import Blueprint, abort, flash, redirect, render_template, send_file, url_for
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
 from app.documenti import percorso_documento
 from app.enums import EsitoDocumento, Ruolo, StatoPratica
 from app.extensions import db
-from app.models import CorsoEsterno, Equivalenza, LearningAgreement, Pratica
-from app.security import esigi_accesso
+from app.models import CorsoEsterno, Equivalenza, Esame, LearningAgreement, Pratica
+from app.security import esigi_accesso , ruolo_richiesto
 
 pratiche_bp = Blueprint("pratiche", __name__, url_prefix="/pratiche")
 
@@ -92,6 +94,36 @@ def _corsi_della_versione(versione):
     ).all()
 
 
+def _esami_da_valutare(pratica: Pratica) -> int:
+    """Voti già inseriti e ancora senza decisione del docente."""
+    n = db.session.scalar(
+        sa.select(sa.func.count(Esame.id))
+        .join(CorsoEsterno)
+        .join(LearningAgreement)
+        .where(LearningAgreement.pratica_id == pratica.id)
+        .where(LearningAgreement.esito == EsitoDocumento.APPROVATO)
+        .where(Esame.esito_riconoscimento == "NON_VALUTATO")
+    )
+    return n or 0
+
+
+def _restano_voti_da_inserire(pratica: Pratica) -> bool:
+    """True se c'è un corso senza voto, o un voto ancora non deciso dal docente."""
+    versione = _versione_approvata(pratica)
+    if versione is None:
+        return False
+    n = db.session.scalar(
+        sa.select(sa.func.count(CorsoEsterno.id))
+        .outerjoin(Esame)
+        .where(CorsoEsterno.learning_agreement_id == versione.id)
+        .where(sa.or_(
+            Esame.id.is_(None),
+            Esame.esito_riconoscimento == "NON_VALUTATO",
+        ))
+    )
+    return (n or 0) > 0
+
+
 def _cosa_fare(pratica: Pratica):
     """Chi deve muoversi adesso, e cosa deve fare.
 
@@ -142,22 +174,40 @@ def _cosa_fare(pratica: Pratica):
                        f"registrare la data di inizio.")
 
     if stato == StatoPratica.MOBILITA_IN_CORSO:
+        # Una versione ancora in attesa congela il piano: il rientro
+        # si registra solo quando non ne resta nessuna.
+        in_attesa = _versione_in_attesa(pratica)
         if sono_lo_studente:
+            if in_attesa is not None and in_attesa.file_path:
+                return False, ("Una modifica del piano è in attesa del docente. "
+                               "Il rientro si registra dopo la sua decisione.")
+            if in_attesa is not None:
+                return True, ("Hai una bozza del piano aperta: inviala o "
+                              "scartala prima di registrare il rientro.")
             return True, ("Al rientro registra la data di fine e carica il "
                           "Transcript of Records rilasciato dall'ateneo "
                           "ospitante. Durante la mobilità puoi proporre una "
                           "modifica al piano.")
+        if sono_il_docente and in_attesa is not None and in_attesa.file_path:
+            return True, ("Lo studente ha proposto una modifica al piano: "
+                          "approvala, oppure rifiutala indicando il motivo.")
         return False, "Mobilità in corso. Nessun intervento richiesto."
 
     if stato == StatoPratica.IN_RICONOSCIMENTO_ESAMI:
         if sono_lo_studente:
-            return True, ("Inserisci voto e data di superamento per ciascun "
-                          "esame sostenuto, poi il docente li valuterà.")
+            if not pratica.transcript:
+                return True, ("Rientro registrato. Carica il Transcript of Records per poter procedere con i voti.")
+            if _restano_voti_da_inserire(pratica):
+                return True, (
+                    "Inserisci voto e data di superamento per ciascun esame sostenuto, poi il docente li valuterà.")
+            return False, ("I voti inseriti sono stati valutati dal docente. Si attende la chiusura dell'ufficio.")
         if sono_il_docente:
-            return True, ("Valuta gli esami sostenuti: puoi accettarli o "
-                          "rifiutarli uno per uno.")
-        return False, ("In attesa del riconoscimento degli esami da parte del "
-                       "docente referente.")
+            if not pratica.transcript:
+                return False, ("In attesa che lo studente carichi il Transcript of Records.")
+            if _esami_da_valutare(pratica) > 0:
+                return True, ("Valuta gli esami sostenuti e il Transcript caricato.")
+            return False, ("Hai valutato tutti i voti inseriti. La chiusura spetta all'ufficio.")
+        return False, ("In attesa del riconoscimento degli esami.")
 
     if stato == StatoPratica.CHIUSA:
         return False, ("Pratica chiusa. Non è più modificabile da nessuno: "
@@ -202,6 +252,38 @@ def dettaglio(id_pratica: int):
         altre_versioni=altre,
         tocca_a_me=tocca_a_me,
         avviso=avviso,
+        oggi=dt.date.today(),
+    )
+
+
+@pratiche_bp.route("/<int:id_pratica>/esami")
+@login_required
+def consulta_esami(id_pratica: int):
+    """Gli esami del piano, in sola lettura, per studente, docente e ufficio.
+
+    E' la stessa pagina usata per inserire i voti e per valutarli.
+    sola_lettura dice alla macro di non disegnare i comandi: qui nessuno
+    scrive, si guarda solo l'esito.
+    """
+    pratica = _carica_pratica(id_pratica)
+    if pratica.stato not in (
+        StatoPratica.IN_RICONOSCIMENTO_ESAMI,
+        StatoPratica.CHIUSA,
+    ):
+        flash("Gli esami non sono ancora disponibili.", "info")
+        return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
+
+    approvata = _versione_approvata(pratica)
+    corsi = _corsi_della_versione(approvata) if approvata else []
+    esami = {c.id: c.esame for c in corsi if c.esame}
+
+    return render_template(
+        "pratiche/esami.html",
+        pratica=pratica,
+        corsi=corsi,
+        esami=esami,
+        valuta=False,
+        sola_lettura=True,
     )
 
 
@@ -238,7 +320,7 @@ def versioni_vecchie(id_pratica: int):
 
 
 # ============================================================================
-# DOWNLOAD DEL DOCUMENTO FIRMATO
+# DOWNLOAD LEARNING AGREEMENT
 # ============================================================================
 
 @pratiche_bp.route("/la/<int:id_versione>/documento")
@@ -268,3 +350,25 @@ def scarica_la(id_versione: int):
                      mimetype="application/pdf",
                      as_attachment=True,
                      download_name=nome)
+
+
+
+
+# ============================================================================
+# DOWNLOAD TRANSCRIPT
+# ============================================================================
+@pratiche_bp.route("/transcript/<int:id_pratica>/documento")
+@login_required
+def scarica_transcript(id_pratica: int):
+    pratica = _carica_pratica(id_pratica)
+    if not pratica.transcript or not pratica.transcript.file_path:
+        abort(404)
+
+    nome = f"Transcript-{pratica.codice_pratica}.pdf"
+    return send_file(
+        percorso_documento(pratica.transcript.file_path),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=nome,
+    )
+

@@ -1,28 +1,344 @@
 {#
-  MAPPING DEGLI ESAMI  ->  FASE 7.3
+  REGISTRAZIONE E RICONOSCIMENTO ESAMI — FASE 7.9
 
-  Gestione delle righe di corrispondenza fra esame estero ed esame di
-  Ca' Foscari. Sei campi per riga, tre per lato: codice, titolo, crediti.
+  Questa pagina serve a due ruoli, regolati dal flag `valuta`:
+    valuta=False (Studente) -> Inserisce voto e data per gli esami superati.
+    valuta=True  (Docente)  -> Vede i voti e clicca "Accetta" o "Rifiuta".
 
-  DA MOSTRARE SEMPRE
-    Il TOTALE dei crediti esteri e il totale dei crediti interni, affiancati.
-    Lo squilibrio deve essere evidente a colpo d'occhio: e' il motivo piu'
-    frequente per cui un docente rifiuta un Learning Agreement.
-
-  VALIDAZIONI (nella route, non solo qui)
-    - nessun codice estero ripetuto nella stessa pratica
-    - crediti positivi e in un intervallo plausibile
-    - campi obbligatori non vuoti
-
-  BLOCCO PER STATO
-    Le righe si modificano solo negli stati che lo consentono. Quando la
-    pratica e' oltre, la pagina diventa di sola lettura.
+  VARIABILI ATTESE DALLA ROTTA:
+    pratica    la Pratica in questione
+    corsi      lista dei CorsoEsterno dell'ultima versione APPROVATA
+    esami      dizionario { corso_esterno_id : oggetto Esame } per ricerca rapida
+    valuta     True se chi guarda è il docente e deve valutare
 #}
 
 {% extends "base.html" %}
-{% block titolo %}Esami{% endblock %}
+
+{% macro riga_esame(corso, esame, valuta=false, sola_lettura=false) %}
+{#
+  Colori dei bordi:
+  Studente: default (grigio) se vuoto, primary (blu) se compilato.
+  Docente e sola lettura: secondary se non sostenuto, warning se da valutare,
+  success se accettato, danger se rifiutato.
+
+  sola_lettura nasconde i comandi: la stessa riga la vedono studente,
+  docente e ufficio, senza inserire voti e senza accettare o rifiutare.
+#}
+{% set stato_esame = esame.esito_riconoscimento if esame else 'ASSENTE' %}
+{% set guarda = valuta or sola_lettura %}
+{% set colore_bordo = 'secondary' %}
+{% if not guarda and esame %} {% set colore_bordo = 'primary' %} {% endif %}
+{% if guarda and stato_esame == 'NON_VALUTATO' %} {% set colore_bordo = 'warning' %} {% endif %}
+{% if guarda and stato_esame == 'ACCETTATO' %} {% set colore_bordo = 'success' %} {% endif %}
+{% if guarda and stato_esame == 'RIFIUTATO' %} {% set colore_bordo = 'danger' %} {% endif %}
+
+<li class="riga card mb-3 border-{{ colore_bordo }}"
+    data-corso-id="{{ corso.id }}"
+    {% if esame %}data-esame-id="{{ esame.id }}"{% endif %}
+    {% if not sola_lettura and not valuta %}
+      data-url-salva="{{ url_for('studente.salva_esame', id_pratica=pratica.id, id_corso=corso.id) }}"
+      data-url-elimina="{{ url_for('studente.elimina_esame', id_pratica=pratica.id, id_corso=corso.id) }}"
+    {% elif not sola_lettura and valuta %}
+      data-url-valuta="{{ url_for('docente.salva_valutazione_esame', id_pratica=pratica.id, id_corso=corso.id) }}"
+    {% endif %}>
+
+  {# ---------- VISTA COMPATTA ---------- #}
+  <div class="riga-compatta d-flex align-items-center gap-3 p-3 flex-wrap {% if guarda and not esame %}bg-light text-muted{% endif %}">
+
+    {# Info Corso Esterno #}
+    <div class="flex-grow-1">
+      <span class="font-monospace small">{{ corso.codice }}</span><br>
+      <span class="fw-semibold">{{ corso.titolo }}</span>
+      <span class="small text-body-secondary">({{ corso.crediti }} CFU)</span>
+
+      {# Info Equivalenza Interna #}
+      <div class="small mt-1">
+        {% if corso.equivalenze %}
+          <span class="text-success">&rarr;</span>
+          {{ corso.equivalenze[0].corso_interno.codice }} — {{ corso.equivalenze[0].corso_interno.titolo }}
+        {% else %}
+          <span class="text-danger">Nessuna equivalenza</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Info Voto / Stato #}
+    <div class="text-end" style="min-width: 140px;">
+      {% if esame %}
+        <div class="fw-bold fs-5 text-{{ colore_bordo }}" data-campo="voto">
+          {{ esame.voto }}{% if esame.voto == 31 %}L{% endif %}
+        </div>
+        <div class="small text-body-secondary" data-campo="data">
+          {{ esame.data_esame.strftime('%d/%m/%Y') }}
+        </div>
+        {% if guarda %}
+          <div class="small fw-bold text-{{ colore_bordo }} mt-1 text-uppercase" data-campo="esito">
+            {{ stato_esame | replace('_', ' ') }}
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="small text-danger fw-semibold">Non sostenuto</div>
+        <div class="small text-body-secondary">Nessun voto inserito</div>
+      {% endif %}
+    </div>
+
+    {# Pulsanti Azione (Studente) #}
+    {% if not sola_lettura and not valuta %}
+      <div class="border-start ps-3 ms-2 text-center">
+        {% if stato_esame in ['ACCETTATO', 'RIFIUTATO'] %}
+          <span class="small {% if stato_esame == 'ACCETTATO' %}text-success{% else %}text-danger{% endif %}">
+            {% if stato_esame == 'ACCETTATO' %}Accettato dal docente{% else %}Rifiutato dal docente{% endif %}
+          </span>
+        {% elif esame %}
+          <button type="button" class="btn btn-sm btn-outline-secondary azione-modifica mb-1 w-100">Modifica</button>
+          <button type="button" class="btn btn-sm btn-outline-danger azione-elimina w-100">Scarta</button>
+        {% else %}
+          <button type="button" class="btn btn-sm btn-primary azione-modifica w-100">Inserisci Voto</button>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {# Pulsanti Azione (Docente) #}
+    {% if not sola_lettura and valuta and esame %}
+      <div class="border-start ps-3 ms-2 text-center" style="min-width: 120px;">
+        <button type="button" class="btn btn-sm btn-success azione-docente-accetta w-100 mb-1" {% if stato_esame == 'ACCETTATO' %}disabled{% endif %}>
+          Accetta
+        </button>
+        <button type="button" class="btn btn-sm btn-danger azione-docente-rifiuta w-100" {% if stato_esame == 'RIFIUTATO' %}disabled{% endif %}>
+          Rifiuta
+        </button>
+      </div>
+    {% endif %}
+
+  </div>
+
+  {# ---------- PANNELLO ESPANDIBILE (Solo Studente) ---------- #}
+  {% if not sola_lettura and not valuta and stato_esame not in ['ACCETTATO', 'RIFIUTATO'] %}
+    <div class="riga-espansa d-none border-top bg-light">
+      <div class="p-3">
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-md-4">
+            <label class="form-label small mb-1">Voto (18-31, 31=Lode)</label>
+            <input type="number" class="form-control form-control-sm" name="voto"
+                   value="{{ esame.voto if esame else '' }}" min="18" max="31" required>
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label small mb-1">Data superamento</label>
+            <input type="date" class="form-control form-control-sm" name="data_esame"
+                   value="{{ esame.data_esame if esame else '' }}" required>
+          </div>
+          <div class="col-12 col-md-4 d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-primary azione-conferma">Salva</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary azione-annulla">Annulla</button>
+          </div>
+          <div class="col-12"><span class="small text-danger messaggio" role="alert"></span></div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+</li>
+{% endmacro %}
+
+
+{% block titolo %}Esami - Pratica {{ pratica.codice_pratica }}{% endblock %}
 
 {% block contenuto %}
-  <h1 class="h4 mb-3">Esami concordati</h1>
-  <div class="alert alert-secondary">Da implementare in Fase 7.3.</div>
+
+{# Normalizzo i flag. sola_lettura: stessa pagina, senza comandi. #}
+{% set valuta = valuta | default(false) %}
+{% set sola_lettura = sola_lettura | default(false) %}
+
+{# Calcolo Statistiche #}
+{% set tot_corsi = corsi | length %}
+{% set ns = namespace(sostenuti=0, accettati=0, rifiutati=0, da_valutare=0) %}
+
+{% for c in corsi %}
+  {% if c.id in esami %}
+    {% set ns.sostenuti = ns.sostenuti + 1 %}
+    {% if esami[c.id].esito_riconoscimento == 'ACCETTATO' %} {% set ns.accettati = ns.accettati + 1 %} {% endif %}
+    {% if esami[c.id].esito_riconoscimento == 'RIFIUTATO' %} {% set ns.rifiutati = ns.rifiutati + 1 %} {% endif %}
+    {% if esami[c.id].esito_riconoscimento == 'NON_VALUTATO' %} {% set ns.da_valutare = ns.da_valutare + 1 %} {% endif %}
+  {% endif %}
+{% endfor %}
+
+{# ---------- INTESTAZIONE ---------- #}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <h1 class="h4 mb-1">{% if sola_lettura %}Esami{% elif valuta %}Valutazione Esami{% else %}Registrazione Esami{% endif %}</h1>
+    <p class="text-body-secondary mb-0 small">
+      Pratica {{ pratica.codice_pratica }} ·
+      {{ pratica.studente.nome_completo }} <span class="font-monospace">({{ pratica.studente.matricola }})</span>
+    </p>
+  </div>
+  <a href="{{ url_for('pratiche.dettaglio', id_pratica=pratica.id) }}" class="btn btn-outline-secondary">Torna alla pratica</a>
+</div>
+
+{# ---------- ISTRUZIONI E STATISTICHE ---------- #}
+<div class="row mb-4">
+  <div class="col-md-8">
+    <div class="alert alert-info py-2 small mb-0 h-100 d-flex flex-column justify-content-center">
+      {% if sola_lettura %}
+        Esiti degli esami del piano approvato. I corsi senza voto risultano non sostenuti.
+      {% elif valuta %}
+        <span class="fw-bold">Istruzioni per il Docente:</span>
+        Valuta singolarmente gli esami sostenuti dallo studente cliccando su Accetta o Rifiuta.
+        Gli esami non sostenuti non richiedono valutazione.
+      {% else %}
+        <span class="fw-bold">Istruzioni per lo Studente:</span>
+        Trascrivi fedelmente voto e data dal tuo Transcript of Records per ogni esame superato.
+        Lascia vuoti gli esami non sostenuti o non superati.
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-md-4 mt-3 mt-md-0">
+    <div class="card h-100">
+      <div class="card-body py-2 d-flex flex-column justify-content-center small">
+        {% if not valuta and not sola_lettura %}
+          <div class="d-flex justify-content-between border-bottom pb-1 mb-1">
+            <span class="text-body-secondary">Pianificati</span> <span class="fw-bold">{{ tot_corsi }}</span>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-body-secondary">Sostenuti inseriti</span> <span class="fw-bold text-primary">{{ ns.sostenuti }}</span>
+          </div>
+        {% else %}
+          <div class="d-flex justify-content-between">
+            <span class="text-body-secondary">Da valutare</span> <span class="fw-bold text-warning">{{ ns.da_valutare }}</span>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-body-secondary">Accettati</span> <span class="fw-bold text-success">{{ ns.accettati }}</span>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-body-secondary">Rifiutati</span> <span class="fw-bold text-danger">{{ ns.rifiutati }}</span>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+
+{# ---------- LISTA ESAMI ---------- #}
+<ul class="list-unstyled mb-4" id="lista-esami">
+  {% for corso in corsi %}
+    {{ riga_esame(corso, esami.get(corso.id), valuta, sola_lettura) }}
+  {% else %}
+    <div class="alert alert-warning text-center">Nessun corso presente nel piano approvato.</div>
+  {% endfor %}
+</ul>
+
+
+{% if not sola_lettura %}
+<div class="card">
+  <div class="card-body small text-body-secondary mb-0">
+    {% if not valuta %}
+      Inserisci tutti i voti presenti nel Transcript. I corsi senza voto restano non sostenuti.
+    {% elif ns.da_valutare > 0 %}
+      Non hai finito: restano esami da valutare.
+    {% else %}
+      Hai finito: tutti i voti inseriti sono stati valutati.
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block script %}
+<script>
+(function () {
+  "use strict";
+  const lista = document.getElementById("lista-esami");
+  if (!lista) return;
+
+  function oggiIso() {
+    const d = new Date();
+    const mese = String(d.getMonth() + 1).padStart(2, "0");
+    const giorno = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + mese + "-" + giorno;
+  }
+
+  lista.querySelectorAll('input[name="data_esame"]').forEach(function (campo) {
+    campo.max = oggiIso();
+  });
+
+  // Usa l'evento delegato per tutta la lista
+  lista.addEventListener("click", function (evento) {
+    const riga = evento.target.closest(".riga");
+    if (!riga) return;
+
+    // --- AZIONI STUDENTE ---
+    if (evento.target.closest(".azione-modifica")) {
+      riga.querySelector(".riga-espansa").classList.remove("d-none");
+    }
+    if (evento.target.closest(".azione-annulla")) {
+      riga.querySelector(".riga-espansa").classList.add("d-none");
+    }
+    if (evento.target.closest(".azione-conferma")) salvaVoto(riga);
+    if (evento.target.closest(".azione-elimina")) scartaVoto(riga);
+
+    // --- AZIONI DOCENTE ---
+    if (evento.target.closest(".azione-docente-accetta")) valutaEsame(riga, 'ACCETTATO');
+    if (evento.target.closest(".azione-docente-rifiuta")) valutaEsame(riga, 'RIFIUTATO');
+  });
+
+  function campi(riga) {
+    const dati = new FormData();
+    riga.querySelectorAll("[name]").forEach(c => dati.append(c.name, c.value));
+    return dati;
+  }
+
+  // Chiamata AJAX Studente -> Salva Esame
+  async function salvaVoto(riga) {
+    const avviso = riga.querySelector(".messaggio");
+    avviso.textContent = "";
+
+    // Validazione base
+    const voto = riga.querySelector('[name="voto"]').value;
+    if (!voto || voto < 18 || voto > 31) {
+      avviso.textContent = "Inserisci un voto valido (18-31)."; return;
+    }
+
+    const dataEsame = riga.querySelector('[name="data_esame"]').value;
+    if (!dataEsame || dataEsame > oggiIso()) {
+      avviso.textContent = "La data dell'esame non può essere successiva a oggi.";
+      return;
+    }
+
+    try {
+      const risposta = await fetch(riga.dataset.urlSalva, {
+        method: "POST", body: campi(riga), headers: { "X-Requested-With": "fetch" }
+      });
+      if (risposta.ok) location.reload();
+      else {
+        const corpo = await risposta.json().catch(function () { return null; });
+        avviso.textContent = (corpo && corpo.errore) || "Errore nel salvataggio.";
+      }
+    } catch (e) { avviso.textContent = "Errore di rete."; }
+  }
+
+  // Chiamata AJAX Studente -> Scarta Esame
+  async function scartaVoto(riga) {
+    if(!confirm("Vuoi rimuovere questo esito? Il corso risulterà come non sostenuto.")) return;
+    try {
+      const risposta = await fetch(riga.dataset.urlElimina, { method: "POST", headers: { "X-Requested-With": "fetch" } });
+      if (risposta.ok) location.reload();
+      else alert("Errore nell'eliminazione.");
+    } catch (e) { alert("Errore di rete."); }
+  }
+
+  // Chiamata AJAX Docente -> Accetta/Rifiuta Esame
+  async function valutaEsame(riga, esito) {
+    const dati = new FormData();
+    dati.append("esito", esito);
+    try {
+      const risposta = await fetch(riga.dataset.urlValuta, {
+        method: "POST", body: dati, headers: { "X-Requested-With": "fetch" }
+      });
+      if (risposta.ok) location.reload();
+      else alert("Errore nel salvataggio della valutazione.");
+    } catch (e) { alert("Errore di rete."); }
+  }
+})();
+</script>
 {% endblock %}
