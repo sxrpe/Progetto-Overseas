@@ -667,7 +667,7 @@ class Esame(db.Model):
     def __repr__(self) -> str:
         return f"<Esame corso={self.corso_esterno_id} voto={self.voto}>"
 
-# FIXME
+
 
 # ===========================================================================
 #  STRUTTURA DI SUPPORTO

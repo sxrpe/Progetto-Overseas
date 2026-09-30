@@ -1,10 +1,12 @@
 """
-Catalogo degli istituti partner, solo per l'ufficio.
+DESCRIZIONE
+    Catalogo degli istituti partner, riservato all'ufficio Overseas.
+    Lo studente non passa di qui: quando crea una pratica legge già
+    tutte le righe di istituto e ne sceglie una.
 
-Lo studente non passa di qui: in nuova pratica legge già tutte le righe
-di istituto. Qui l'ufficio ne aggiunge una.
-
-GET/POST  /ufficio/istituti  ->  elenco
+MAPPA
+    GET   /ufficio/istituti    elenco    catalogo e modulo di inserimento
+    POST  /ufficio/istituti    elenco    aggiunge nome, paese e città
 """
 
 import sqlalchemy as sa
@@ -19,6 +21,10 @@ from app.security import ruolo_richiesto
 istituti_bp = Blueprint("istituti", __name__)
 
 
+# ============================================================================
+# ELENCO E INSERIMENTO
+# GET/POST  /ufficio/istituti  ->  elenco
+# ============================================================================
 @istituti_bp.route("/istituti", methods=["GET", "POST"])
 @login_required
 @ruolo_richiesto(Ruolo.UFFICIO)

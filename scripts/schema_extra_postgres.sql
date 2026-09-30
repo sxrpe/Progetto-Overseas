@@ -17,7 +17,6 @@
 
 
 -- ===========================================================================
---  FIXME
 --  PARTE 0 - LA MACCHINA A STATI COME DATO
 -- ===========================================================================
 --  Sei righe di configurazione, non dati applicativi: stanno qui e non nel
