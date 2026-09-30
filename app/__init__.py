@@ -77,6 +77,7 @@ def create_app(nome_config: str = "dev") -> Flask:
     from app.blueprints.auth import auth_bp
     from app.blueprints.docente import docente_bp
     from app.blueprints.pratiche import pratiche_bp
+    from app.blueprints.istituti import istituti_bp
     from app.blueprints.pubblico import pubblico_bp
     from app.blueprints.studente import studente_bp
     from app.blueprints.ufficio import ufficio_bp
@@ -88,6 +89,7 @@ def create_app(nome_config: str = "dev") -> Flask:
     app.register_blueprint(studente_bp, url_prefix="/studente")
     app.register_blueprint(docente_bp, url_prefix="/docente")
     app.register_blueprint(ufficio_bp, url_prefix="/ufficio")
+    app.register_blueprint(istituti_bp, url_prefix="/ufficio")
 
     _registra_pagine_errore(app)
 

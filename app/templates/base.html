@@ -45,6 +45,8 @@
           {% elif current_user.is_authenticated and current_user.ruolo == Ruolo.UFFICIO %}
             <a class="nav-link {% if request.endpoint == 'ufficio.elenco_pratiche' %}active{% endif %}"
                href="{{ url_for('ufficio.elenco_pratiche') }}">Pratiche</a>
+            <a class="nav-link {% if request.endpoint == 'istituti.elenco' %}active{% endif %}"
+               href="{{ url_for('istituti.elenco') }}">Istituti</a>
           {% endif %}
         {% endif %}
       </ul>

@@ -1,9 +1,53 @@
-{# Stub: gestione istituti partner (ancora da fare). #}
-
+{#
+  Catalogo istituti partner. Solo l'ufficio: elenco e aggiunta.
+#}
 {% extends "base.html" %}
+
 {% block titolo %}Istituti partner{% endblock %}
 
 {% block contenuto %}
-  <h1 class="h4 mb-3">Istituti partner</h1>
-  <div class="alert alert-secondary">Da implementare in Fase 7.1.</div>
+
+<h1 class="h4 mb-3">Istituti partner</h1>
+
+<form method="post" class="row g-2 align-items-end mb-4">
+  <div class="col-12 col-md-4">
+    <label for="nome" class="form-label">Nome</label>
+    <input class="form-control" id="nome" name="nome" required maxlength="160">
+  </div>
+  <div class="col-6 col-md-3">
+    <label for="paese" class="form-label">Paese</label>
+    <input class="form-control" id="paese" name="paese" required maxlength="80">
+  </div>
+  <div class="col-6 col-md-3">
+    <label for="citta" class="form-label">Città</label>
+    <input class="form-control" id="citta" name="citta" required maxlength="80">
+  </div>
+  <div class="col-12 col-md-2">
+    <button type="submit" class="btn btn-primary">Aggiungi</button>
+  </div>
+</form>
+
+{% if istituti %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Nome</th>
+      <th>Paese</th>
+      <th>Città</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for istituto in istituti %}
+    <tr>
+      <td>{{ istituto.nome }}</td>
+      <td>{{ istituto.paese }}</td>
+      <td>{{ istituto.citta }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-body-secondary mb-0">Nessun istituto.</p>
+{% endif %}
+
 {% endblock %}
