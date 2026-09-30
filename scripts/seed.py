@@ -43,27 +43,27 @@ def crea_utenti() -> dict[str, Utente]:
     """
     utenti = {
         "studente": Utente(
-            email="studente@stud.unive.it",
+            email="leonardo.rossi@stud.unive.it",
             nome="Leonardo", cognome="Rossi",
             ruolo=Ruolo.STUDENTE, matricola="891234",
         ),
         "studente2": Utente(
-            email="studente2@stud.unive.it",
+            email="giulia.bianchi@stud.unive.it",
             nome="Giulia", cognome="Bianchi",
             ruolo=Ruolo.STUDENTE, matricola="891235",
         ),
         "docente": Utente(
-            email="docente@unive.it",
+            email="alessandra.verdi@unive.it",
             nome="Alessandra", cognome="Verdi",
             ruolo=Ruolo.DOCENTE,
         ),
         "docente2": Utente(
-            email="docente2@unive.it",
+            email="marco.neri@unive.it",
             nome="Marco", cognome="Neri",
             ruolo=Ruolo.DOCENTE,
         ),
         "ufficio": Utente(
-            email="ufficio@unive.it",
+            email="chiara.gallo@unive.it",
             nome="Chiara", cognome="Gallo",
             ruolo=Ruolo.UFFICIO,
         ),
