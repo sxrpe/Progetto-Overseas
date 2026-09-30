@@ -1,6 +1,6 @@
 """
 DESCRIZIONE
-    Inserisce i dati di prova: utenti, istituti, corsi interni e due pratiche.
+    Inserisce i dati di prova: utenti, istituti e corsi interni.
     Senza questo il database è vuoto e non si può fare login.
     Si può rilanciare: prima svuota ciò che aveva inserito, poi ricrea tutto.
 
@@ -10,12 +10,10 @@ USO
     Password di tutti gli account di prova: overseas
 """
 
-import datetime as dt
-
 import sqlalchemy as sa
 
 from app import create_app
-from app.enums import Periodo, Ruolo, StatoPratica
+from app.enums import Ruolo
 from app.extensions import db
 from app.models import CorsoInterno, Istituto, Pratica, Utente
 
@@ -111,39 +109,6 @@ def crea_corsi_interni() -> list[CorsoInterno]:
     return corsi
 
 
-def crea_pratiche(utenti: dict[str, Utente], istituti: list[Istituto]) -> None:
-    """Due pratiche in stato APERTA, da far avanzare dall'interfaccia.
-
-    Non si inseriscono stati avanzati a mano: i trigger richiedono le
-    transizioni reali, e per la demo è meglio mostrarle dal sito.
-    """
-    pratiche = [
-        Pratica(
-            codice_pratica="OVS-2025-001",
-            anno_accademico=2025,
-            periodo=Periodo.PRIMO_SEMESTRE,
-            stato=StatoPratica.APERTA,
-            studente_id=utenti["studente"].id,
-            docente_id=utenti["docente"].id,
-            istituto_id=istituti[0].id,
-            data_apertura=dt.date.today(),
-            note="Interessata ai corsi di area database.",
-        ),
-        Pratica(
-            codice_pratica="OVS-2025-002",
-            anno_accademico=2025,
-            periodo=Periodo.INTERO_ANNO,
-            stato=StatoPratica.APERTA,
-            studente_id=utenti["studente2"].id,
-            docente_id=utenti["docente2"].id,
-            istituto_id=istituti[1].id,
-            data_apertura=dt.date.today(),
-        ),
-    ]
-    db.session.add_all(pratiche)
-    db.session.commit()
-
-
 def main() -> None:
     """Svuota, ripopola e stampa le credenziali di prova."""
     app = create_app()
@@ -155,16 +120,13 @@ def main() -> None:
         svuota()
 
         print("Creo gli utenti...")
-        utenti = crea_utenti()
+        crea_utenti()
 
         print("Creo gli istituti partner...")
-        istituti = crea_istituti()
+        crea_istituti()
 
         print("Creo il catalogo dei corsi interni...")
         crea_corsi_interni()
-
-        print("Creo le pratiche di esempio...")
-        crea_pratiche(utenti, istituti)
 
         print()
         print("Fatto. Credenziali di prova (password: %s)" % PASSWORD_DI_PROVA)

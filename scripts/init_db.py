@@ -22,6 +22,31 @@ from app.extensions import db  # noqa: E402
 
 FILE_SQL_EXTRA = Path(__file__).resolve().parent / "schema_extra_postgres.sql"
 
+# Viste create dallo script SQL, non dai modelli. Senza questo DROP,
+# drop_all() non riesce a cancellare le tabelle a cui le viste si appoggiano.
+VISTE = (
+    "v_pratiche_pronte_per_chiusura",
+    "v_stato_riconoscimento_pratica",
+    "v_learning_agreement_corrente",
+)
+
+
+def elimina_viste() -> None:
+    """Toglie le viste PostgreSQL prima di cancellare le tabelle."""
+    if db.engine.dialect.name != "postgresql":
+        return
+    with db.engine.begin() as conn:
+        cursore = conn.connection.cursor()
+        try:
+            cursore.execute(
+                "DROP VIEW IF EXISTS "
+                + ", ".join(VISTE)
+                + " CASCADE"
+            )
+        finally:
+            cursore.close()
+    print("  [ok] Viste eliminate.")
+
 
 def esegui_sql_extra() -> None:
     """Applica il file SQL aggiuntivo, se il database è PostgreSQL."""
@@ -74,6 +99,7 @@ def main() -> None:
             if conferma.strip().lower() != "si":
                 print("Annullato.")
                 return
+            elimina_viste()
             db.drop_all()
             print("  [ok] Tabelle esistenti eliminate.")
 
