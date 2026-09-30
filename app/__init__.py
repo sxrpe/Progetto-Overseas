@@ -6,7 +6,6 @@ DESCRIZIONE
     (dev, demo) senza oggetti globali sparsi.
 """
 
-import sqlalchemy as sa
 from flask import Flask, render_template
 
 from config import CONFIGS, Config
@@ -37,22 +36,6 @@ def create_app(nome_config: str = "dev") -> Flask:
     def carica_utente(id_utente: str):
         """Dal cookie firmato ricostruisce l'oggetto Utente a ogni richiesta."""
         return db.session.get(Utente, int(id_utente))
-
-    @app.before_request
-    def dichiara_utente_al_database(): # FIXME Da eliminare
-        """Dice a PostgreSQL quale utente applicativo sta agendo.
-
-        La connessione al database è sempre la stessa; i trigger leggono
-        app.utente_id tramite current_setting() per controllare i ruoli.
-        set_config con parametro evita di concatenare l'id nella stringa SQL.
-        """
-        from flask_login import current_user
-
-        if current_user.is_authenticated:
-            db.session.execute(
-                sa.text("SELECT set_config('app.utente_id', :id, true)"),
-                {"id": str(current_user.id)},
-            )
 
     # Enum disponibili in tutti i template, senza ripassarli a ogni render.
     from app.enums import (

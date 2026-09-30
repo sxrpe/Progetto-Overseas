@@ -40,21 +40,6 @@ INSERT INTO transizione_ammessa (stato_da, stato_a, ruolo, descrizione) VALUES
      'Chiudi la pratica')
 ON CONFLICT DO NOTHING;
 
--- Recupera l'id dell'utente corrente tramite la funzione current_setting
--- che legge le variabili di configurazione della sessione da cui ottiene l'id
-CREATE OR REPLACE FUNCTION app_utente_corrente()
-RETURNS INTEGER AS $$
-DECLARE
-    valore TEXT;
-BEGIN
-    valore := current_setting('app.utente_id', true);
-    IF valore IS NULL OR valore = '' THEN
-        RETURN NULL;
-    END IF;
-    RETURN valore::INTEGER;
-END;
-$$ LANGUAGE plpgsql STABLE;
-
 
 -- Controlla che ogni pratica abbia prima uno studente e un docente collegato
 -- Inoltre, verifica che se una pratica è stata verificata o chiusa,
@@ -132,8 +117,6 @@ CREATE TRIGGER trg_pratica_immutabile
 CREATE OR REPLACE FUNCTION fn_transizione_stato()
 RETURNS TRIGGER AS $$
 DECLARE
-    ruolo_attore   TEXT;
-    id_attore      INTEGER;
     n              INTEGER;
     la_operativo   INTEGER;
 BEGIN
@@ -142,7 +125,8 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Verifica che la transizione sia ammessa dalla macchina a stati.
+    -- La coppia di stati deve esistere. Chi puo' compierla lo decide
+    -- l'applicazione: questo trigger non conosce l'utente collegato.
     SELECT count(*) INTO n
       FROM transizione_ammessa
      WHERE stato_da = OLD.stato AND stato_a = NEW.stato;
@@ -151,25 +135,6 @@ BEGIN
         RAISE EXCEPTION
             'Transizione non ammessa: da % a %', OLD.stato, NEW.stato
             USING ERRCODE = 'check_violation';
-    END IF;
-
-    -- Se l'utente è noto, il suo ruolo deve ammettere la transizione.
-    id_attore := app_utente_corrente();
-    IF id_attore IS NOT NULL THEN
-        SELECT ruolo INTO ruolo_attore FROM utente WHERE id = id_attore;
-
-        SELECT count(*) INTO n
-          FROM transizione_ammessa
-         WHERE stato_da = OLD.stato
-           AND stato_a = NEW.stato
-           AND ruolo   = ruolo_attore;
-
-        IF n = 0 THEN
-            RAISE EXCEPTION
-                'Il ruolo % non puo'' portare la pratica da % a %',
-                ruolo_attore, OLD.stato, NEW.stato
-                USING ERRCODE = 'insufficient_privilege';
-        END IF;
     END IF;
 
     -- Per passare a ATTESA_APPROVAZIONE_LA:
@@ -265,6 +230,9 @@ DROP TRIGGER IF EXISTS trg_transizione_stato ON pratica;
 CREATE TRIGGER trg_transizione_stato
     BEFORE UPDATE ON pratica
     FOR EACH ROW EXECUTE FUNCTION fn_transizione_stato();
+
+-- Non serve piu': il trigger non legge l'utente di sessione.
+DROP FUNCTION IF EXISTS app_utente_corrente();
 
 
 -- Nuove versioni del LA solo in APERTA, ATTESA_APPROVAZIONE_LA

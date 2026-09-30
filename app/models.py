@@ -688,8 +688,9 @@ class TransizioneAmmessa(db.Model):
         mostrare, quindi le regole stanno in un posto solo invece che
         duplicate fra trigger e template.
 
-    Il ruolo fa parte della chiave primaria: una transizione consentita a
-    piu' ruoli si esprime con piu' righe, senza toccare il codice.
+    Il ruolo fa parte della chiave e documenta chi, nell'applicazione, puo'
+    compiere il passaggio. Il trigger controlla solo che la coppia di stati
+    esista: non conosce l'utente collegato.
 
     Le sei righe vengono inserite da scripts/schema_extra_postgres.sql.
     """
