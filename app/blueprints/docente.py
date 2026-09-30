@@ -1,34 +1,15 @@
-"""Area del docente referente.
+"""
+DESCRIZIONE
+    Area del docente referente: decidere sul Learning Agreement e sui voti.
+    Vede solo le pratiche di cui è referente (filtro nella query, non nel template).
 
-ROTTE
-    GET   /docente/pratiche                     elenco, diviso per lavoro
-    GET   /docente/pratiche/<id>/la             il piano proposto, in lettura
-    POST  /docente/pratiche/<id>/la/approva     approva la versione in attesa
-    POST  /docente/pratiche/<id>/la/rifiuta     rifiuta, con motivazione
-
-IL CRITERIO DELL'ELENCO
-    Il docente ha un mestiere solo: decidere. Un elenco neutro delle sue
-    pratiche non lo aiuta; un elenco che dice "queste aspettano te" si'.
-    Da qui i due gruppi, e la colonna con i giorni di attesa.
-
-LA REGOLA DA NON VIOLARE
-    Il docente vede SOLO le pratiche di cui e' referente. Il filtro sta
-    nella query:
-        .where(Pratica.docente_id == current_user.id)
-    e ogni rotta che riceve un <id> passa da _pratica_del_docente().
-
-COSA SUCCEDE ALL'APPROVAZIONE
-    Solo l'esito della versione diventa APPROVATO. Lo stato della pratica
-    NON cambia: resta ATTESA_APPROVAZIONE_LA finche' l'ufficio non fa la
-    verifica pre-partenza. Lo dice la tabella transizione_ammessa, che
-    per il docente prevede una sola transizione:
-        ATTESA_APPROVAZIONE_LA -> APERTA   (rifiuto)
-
-COSA SUCCEDE AL RIFIUTO
-    La pratica torna in APERTA e la versione resta li', RIFIUTATA, con la
-    sua motivazione. Non si ripristina niente a mano: la versione
-    precedentemente approvata non e' mai stata toccata, e resta quella
-    valida. E' il requisito 7 della traccia, soddisfatto dal versionamento.
+MAPPA
+    GET  /docente/pratiche                               elenco_pratiche           elenco, diviso per lavoro
+    GET  /docente/pratiche/<id>/la                       valuta_la                 piano proposto (lettura)
+    POST /docente/pratiche/<id>/la/approva               approva_la                approva la versione
+    POST /docente/pratiche/<id>/la/rifiuta               rifiuta_la                rifiuta con motivazione
+    GET  /docente/pratiche/<id>/esami                    valuta_esami              pagina riconoscimento
+    POST /docente/pratiche/<id>/esami/<id>/valuta        salva_valutazione_esame  esito voto (JSON)
 """
 
 import datetime as dt
@@ -46,18 +27,15 @@ from app.security import ruolo_richiesto
 docente_bp = Blueprint("docente", __name__)
 
 
-
-
 # ============================================================================
 # UTILITY
 # ============================================================================
 
 def _pratica_del_docente(id_pratica: int) -> Pratica:
-    """Carica la pratica verificando che chi chiede ne sia il referente.
+    """Carica la pratica solo se chi chiede ne è il referente.
 
-    Risponde 404 e non 403 anche quando la pratica esiste ma e' di un altro
-    docente: un 403 confermerebbe l'esistenza, e provando gli identificatori
-    uno per uno si scoprirebbe quante pratiche ci sono nel sistema.
+    404 anche se esiste ma è di un altro docente: un 403 confermerebbe
+    che la pratica c'è.
     """
     pratica = db.session.get(Pratica, id_pratica)
     if pratica is None:
@@ -68,26 +46,23 @@ def _pratica_del_docente(id_pratica: int) -> Pratica:
 
 
 def _versione_in_attesa(pratica: Pratica):
-    """La versione del piano su cui il docente deve decidere, o None.
+    """La versione su cui il docente deve decidere, o None.
 
-    Ce n'e' al massimo una per pratica: lo garantisce l'indice unico
-    parziale uq_la_una_sola_in_attesa.
+    Al massimo una per pratica (indice parziale uq_la_una_sola_in_attesa).
+    file_path obbligatorio: senza PDF è ancora una bozza dello studente.
 
-    NOTA: e' gemella di _bozza_aperta() in studente.py. Se ne serve una
-    terza copia, e' il momento di spostarle in un modulo comune.
     """
     return db.session.scalar(
         sa.select(LearningAgreement)
         .where(LearningAgreement.pratica_id == pratica.id)
         .where(LearningAgreement.esito == EsitoDocumento.IN_ATTESA)
-        .where(LearningAgreement.file_path.is_not(None)) # FIXME  per sistemare che il prof riesce a approvare un la senza doc
+        .where(LearningAgreement.file_path.is_not(None)) # senza file non si decide
     )
 
 def _proposta_da_valutare(pratica):
-    """La versione che aspetta la TUA decisione: in attesa e gia' firmata.
+    """Versione in attesa e già firmata (PDF caricato).
 
-    Una versione in attesa senza file_path e' una bozza che lo studente sta
-    ancora scrivendo: non riguarda il docente.
+    IN_ATTESA senza file_path = bozza ancora in scrittura: non riguarda il docente.
     """
     for versione in pratica.learning_agreements:
 
@@ -96,11 +71,9 @@ def _proposta_da_valutare(pratica):
     return None
 
 def _corsi_della_versione(versione):
-    """I corsi esteri della versione, con le equivalenze gia' caricate.
+    """Corsi esteri della versione, con equivalenze e corsi interni già caricati.
 
-    Due selectinload in catena perche' il template attraversa due
-    relazioni: dal corso alle sue equivalenze, e da ogni equivalenza al
-    corso interno.
+    Due selectinload in catena: il template legge corso → equivalenza → corso interno.
     """
     return db.session.scalars(
         sa.select(CorsoEsterno)
@@ -112,11 +85,10 @@ def _corsi_della_versione(versione):
 
 
 def _da_quando_aspetta(pratica: Pratica):
-    """Da quanti giorni la pratica e' ferma in attesa del docente.
+    """Giorni di attesa per il docente, o None se non sta aspettando niente.
 
-    None se non sta aspettando niente. La data di partenza dipende da cosa
-    si sta aspettando: la proposta del piano, oppure il rientro dello
-    studente.
+    Conta da data_caricamento del LA (attesa piano) oppure da data_fine
+    (riconoscimento esami dopo il rientro).
     """
     dal = None
 
@@ -134,11 +106,11 @@ def _da_quando_aspetta(pratica: Pratica):
 
 
 def _ci_sono_esami_da_valutare(pratica):
-    """Verifica se lo studente ha caricato voti che il docente non ha ancora valutato."""
+    """True se ci sono voti caricati ancora NON_VALUTATO sul piano approvato."""
     if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:
         return False
 
-    # Fa una query veloce: Conta se ci sono esami 'NON_VALUTATO' nel piano approvato
+    # count(*) sugli esami del piano APPROVATO ancora senza decisione
     n = db.session.scalar(
         sa.select(sa.func.count(Esame.id))
         .join(CorsoEsterno)
@@ -150,17 +122,14 @@ def _ci_sono_esami_da_valutare(pratica):
     return (n or 0) > 0
 
 # ============================================================================
-# ELENCO
+# ELENCO PRATICHE
+# GET  /docente/pratiche  ->  elenco_pratiche
 # ============================================================================
-
 @docente_bp.route("/pratiche", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.DOCENTE)
 def elenco_pratiche():
-    """Le pratiche di cui il docente e' referente, divise per lavoro.
-
-    Una query sola: la divisione in due gruppi si fa in Python, perche'
-    andare due volte al database per la stessa tabella non serve a niente.
+    """Le pratiche di cui è referente, divise in «da decidere» e «le altre».
     """
     pratiche = db.session.scalars(
         sa.select(Pratica)
@@ -173,8 +142,7 @@ def elenco_pratiche():
         .order_by(Pratica.anno_accademico.desc(), Pratica.codice_pratica)
     ).all()
 
-    # Ogni riga porta con se' i giorni di attesa, calcolati qui e non nel
-    # template: Jinja disegna, la rotta decide.
+    # Giorni di attesa calcolati qui
     da_decidere = []
     le_altre = []
 
@@ -190,7 +158,7 @@ def elenco_pratiche():
         riga = {"pratica": pratica, "giorni": giorni}
         (da_decidere if tocca_a_me else le_altre).append(riga)
 
-    # Le piu' ferme in cima: sono quelle che rischiano di essere dimenticate.
+    # Le più ferme in cima: sono quelle che rischiano di essere dimenticate.
     da_decidere.sort(key=lambda r: r["giorni"] or 0, reverse=True)
 
     return render_template("docente/elenco.html",
@@ -198,18 +166,17 @@ def elenco_pratiche():
 
 
 # ============================================================================
-# VALUTAZIONE DEL LEARNING AGREEMENT
+# VALUTAZIONE LEARNING AGREEMENT
+# GET  /docente/pratiche/<id>/la  ->  valuta_la
 # ============================================================================
-
 @docente_bp.route("/pratiche/<int:id_pratica>/la", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.DOCENTE)
 def valuta_la(id_pratica: int):
-    """Il piano proposto, con i comandi di approvazione.
+    """Piano proposto in sola lettura, con i pulsanti di decisione.
 
-    Riusa lo stesso template dello studente: cambia solo il flag
-    sola_lettura, che nasconde i comandi di modifica e mostra al loro
-    posto il documento firmato e i due pulsanti della decisione.
+    Stesso template dello studente: sola_lettura nasconde le modifiche,
+    puo_decidere mostra documento firmato + approva/rifiuta.
     """
     pratica = _pratica_del_docente(id_pratica)
     versione = _versione_in_attesa(pratica)
@@ -228,15 +195,19 @@ def valuta_la(id_pratica: int):
     )
 
 
+# ============================================================================
+# APPROVA LA
+# POST  /docente/pratiche/<id>/la/approva  ->  approva_la
+# ============================================================================
 @docente_bp.route("/pratiche/<int:id_pratica>/la/approva", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.DOCENTE)
 def approva_la(id_pratica: int):
     """Approva la versione in attesa.
 
-    Lo stato della pratica NON cambia: resta ATTESA_APPROVAZIONE_LA finche'
-    l'ufficio non registra la verifica pre-partenza. Quindi qui non scatta
-    nessun trigger sulle transizioni.
+    Cambia solo l'esito della versione (APPROVATO). Lo stato della pratica
+    resta ATTESA_APPROVAZIONE_LA finché l'ufficio non fa la verifica
+    pre-partenza → qui non scatta nessun trigger sulle transizioni.
     """
     pratica = _pratica_del_docente(id_pratica)
     versione = _versione_in_attesa(pratica)
@@ -259,24 +230,20 @@ def approva_la(id_pratica: int):
     return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
 
+# ============================================================================
+# RIFIUTA LA
+# POST  /docente/pratiche/<id>/la/rifiuta  ->  rifiuta_la
+# ============================================================================
 @docente_bp.route("/pratiche/<int:id_pratica>/la/rifiuta", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.DOCENTE)
 def rifiuta_la(id_pratica: int):
-    """Rifiuta la versione in attesa e riporta la pratica in APERTA.
+    """Rifiuta la versione e riporta la pratica in APERTA (se era in attesa).
 
-    IL RIPRISTINO NON ESISTE, ED E' IL PUNTO
-        Il requisito 7 chiede che al rifiuto "sia ripristinata
-        l'associazione degli esami precedentemente concordata". Qui non si
-        ripristina niente: la versione precedente non e' mai stata toccata,
-        e learning_agreement_corrente continua a restituirla.
-        Lo studente che riapre la mappatura non trova nessuna bozza aperta,
-        quindi ne crea una nuova con il numero successivo.
+    Non si ripristina nulla a mano: la versione approvata prima
+    non è mai stata toccata, learning_agreement_corrente la restituisce ancora.
 
-    L'ORDINE DELLE SCRITTURE
-        Il trigger sulla transizione controlla i dati della versione,
-        quindi la versione va scritta PRIMA che l'UPDATE su pratica faccia
-        scattare il controllo. Da qui il flush().
+    Ordine: prima si scrive la versione (flush), poi lo stato della pratica.
     """
     pratica = _pratica_del_docente(id_pratica)
     versione = _versione_in_attesa(pratica)
@@ -293,6 +260,7 @@ def rifiuta_la(id_pratica: int):
     versione.data_decisione = dt.date.today()
     db.session.flush()
 
+    # Solo se eravamo in attesa del primo piano: in mobilità lo stato non torna APERTA
     if pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA:
         pratica.stato = StatoPratica.APERTA
 
@@ -313,11 +281,10 @@ def rifiuta_la(id_pratica: int):
 
 
 # ============================================================================
-# VALUTAZIONE ESAMI : UTILITY
+# UTILITY ESAMI
 # ============================================================================
-
 def _versione_approvata(pratica: Pratica):
-    """Cerca l'ultima versione approvata del piano."""
+    """L'ultima versione APPROVATO (numero più alto) = piano valido."""
     migliore = None
     for versione in pratica.learning_agreements:
         if versione.esito == EsitoDocumento.APPROVATO:
@@ -326,13 +293,14 @@ def _versione_approvata(pratica: Pratica):
     return migliore
 
 # ============================================================================
-# VALUTAZIONE ESAMI : MOSTRA
+# VALUTAZIONE ESAMI
+# GET  /docente/pratiche/<id>/esami  ->  valuta_esami
 # ============================================================================
 @docente_bp.route("/pratiche/<int:id_pratica>/esami", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.DOCENTE)
 def valuta_esami(id_pratica: int):
-    """Mostra la pagina di valutazione esami al docente."""
+    """Pagina di riconoscimento voti (stesso dello studente, valuta=True)."""
     pratica = _pratica_del_docente(id_pratica)
 
     if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:
@@ -342,19 +310,20 @@ def valuta_esami(id_pratica: int):
     approvata = _versione_approvata(pratica)
     corsi = _corsi_della_versione(approvata) if approvata else []
 
-    # Carica solo gli esami effettivamente sostenuti
+    # id_corso → esame: nel template si vede subito se c'è un voto da giudicare
     esami = {c.id: c.esame for c in corsi if c.esame}
 
     return render_template("pratiche/esami.html", pratica=pratica, corsi=corsi, esami=esami, valuta=True)
 
 # ============================================================================
-# VALUTAZIONE ESAMI : VALUTA
+# SALVA VALUTAZIONE ESAME
+# POST  /docente/pratiche/<id>/esami/<id>/valuta  ->  salva_valutazione_esame
 # ============================================================================
 @docente_bp.route("/pratiche/<int:id_pratica>/esami/<int:id_corso>/valuta", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.DOCENTE)
 def salva_valutazione_esame(id_pratica: int, id_corso: int):
-    """Registra la scelta del docente su un singolo esame (Chiamata JSON AJAX)."""
+    """Registra ACCETTATO/RIFIUTATO su un esame. Risposta JSON (AJAX)."""
     pratica = _pratica_del_docente(id_pratica)
 
     if pratica.stato != StatoPratica.IN_RICONOSCIMENTO_ESAMI:

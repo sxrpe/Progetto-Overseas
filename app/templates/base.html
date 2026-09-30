@@ -1,19 +1,7 @@
 {#
-  TEMPLATE BASE — la struttura comune a tutte le pagine.
-
-  Ogni altro template comincia con  {% extends "base.html" %}  e riempie
-  soltanto i blocchi. Nessuna pagina deve ripetere <html>, <head>, la barra
-  di navigazione o i messaggi: se lo fa, una modifica al menu va poi
-  riportata a mano in venti file.
-
-  I BLOCCHI DISPONIBILI
-      {% block titolo %}      il titolo nella scheda del browser
-      {% block contenuto %}   il corpo della pagina
-      {% block script %}      eventuale JavaScript specifico della pagina
-
-  Bootstrap 5 arriva da CDN. Se preferisci non dipendere dalla rete durante
-  la demo, scarica i due file in app/static/ e cambia i link: la pagina
-  funziona identica.
+  Layout comune a tutte le pagine.
+  Le altre riempiono i blocchi titolo, contenuto e script.
+  Nascondere una voce del menu non è sicurezza: il controllo sta nelle rotte.
 #}
 <!DOCTYPE html>
 <html lang="it">
@@ -28,20 +16,7 @@
 </head>
 <body class="d-flex flex-column min-vh-100 bg-body-tertiary">
 
-{# ---------- BARRA DI NAVIGAZIONE -------------------------------------- #}
-{#
-  Il menu cambia in base al ruolo dell'utente collegato.
-
-  ATTENZIONE, E' UN PUNTO DA CAPIRE BENE: nascondere una voce NON e' un
-  controllo di sicurezza. Chiunque puo' digitare l'URL a mano nella barra
-  degli indirizzi. Il controllo vero sta sempre nella rotta, lato server,
-  con @login_required e @ruolo_richiesto. Qui si evita solo di mostrare
-  all'utente comandi che non lo riguardano.
-
-  current_user esiste in tutti i template senza doverlo passare: lo mette a
-  disposizione Flask-Login. Se non c'e' nessuno collegato e' un oggetto
-  "anonimo", per cui is_authenticated vale False.
-#}
+{# Menu, flash, piè di pagina. #}
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container">
     <a class="navbar-brand fw-semibold" href="{{ url_for('pubblico.home') }}">
@@ -71,20 +46,6 @@
             <a class="nav-link {% if request.endpoint == 'ufficio.elenco_pratiche' %}active{% endif %}"
                href="{{ url_for('ufficio.elenco_pratiche') }}">Pratiche</a>
           {% endif %}
-          {#
-            Le voci per ruolo si accendono man mano che le rotte esistono.
-            Scommentare una riga PRIMA che la rotta esista fa fallire
-            url_for() con un BuildError, e la pagina non si apre piu'.
-
-
-
-          {% elif current_user.e_ufficio %}
-            <li class="nav-item">
-              <a class="nav-link" href="{{ url_for('ufficio.cruscotto') }}">
-                Cruscotto</a>
-            </li>
-          {% endif %}
-          #}
         {% endif %}
       </ul>
 
@@ -111,24 +72,10 @@
   </div>
 </nav>
 
-{# ---------- CONTENUTO ------------------------------------------------- #}
+{# Corpo della pagina. #}
 <main class="container my-4 flex-grow-1" style="max-width: 62rem;">
 
-  {#
-    MESSAGGI FLASH: il canale unico per parlare all'utente.
-
-    Nel codice Python:   flash("Pratica creata.", "success")
-    La categoria (secondo argomento) decide il colore. Le categorie usate nel
-    progetto sono quattro, e corrispondono ai nomi Bootstrap:
-        success   operazione riuscita
-        danger    operazione rifiutata
-        warning   avviso, serve attenzione
-        info      informazione neutra
-
-    Un flash sopravvive a un redirect: e' il motivo per cui dopo una POST si
-    fa sempre redirect invece di rispondere con l'HTML. Cosi' se l'utente
-    ricarica la pagina non rispedisce il form una seconda volta.
-  #}
+  {# Messaggi flash dalla rotta. #}
   {% with messaggi = get_flashed_messages(with_categories=true) %}
     {% for categoria, testo in messaggi %}
       <div class="alert alert-{{ categoria if categoria in
@@ -144,7 +91,6 @@
   {% block contenuto %}{% endblock %}
 </main>
 
-{# ---------- PIÈ DI PAGINA --------------------------------------------- #}
 <footer class="border-top py-3 mt-auto">
   <div class="container text-center text-body-secondary small">
     Basi di Dati Mod. 2 — A.A. 2025/2026 — Università Ca' Foscari Venezia

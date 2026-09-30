@@ -1,41 +1,23 @@
 -- ===========================================================================
 --  Vincoli, trigger e viste non esprimibili con l'ORM
---  Progetto Overseas - Basi di Dati Mod. 2
 -- ===========================================================================
---
 --  QUANDO VIENE ESEGUITO
---      Da scripts/init_db.py, subito dopo db.create_all(). Le tabelle devono
---      quindi esistere gia': qui non se ne crea nessuna.
+--      Da scripts/init_db.py, subito dopo db.create_all().
 --
---  PERCHE' QUESTO FILE ESISTE
---      Un vincolo CHECK vede una sola riga di una sola tabella, nella sua
---      versione nuova. Tutto cio' che ha bisogno di:
---          - leggere un'altra tabella
---          - conoscere il valore PRECEDENTE della riga
---          - contare righe correlate
---      esce dalla portata dell'ORM e finisce qui.
+--  Un vincolo CHECK vede una sola riga di una sola tabella, nella sua
+--  versione nuova. Tutto cio' che ha bisogno di:
+--      - leggere un'altra tabella
+--      - conoscere il valore PRECEDENTE della riga
+--      - contare righe correlate
+--  esce dalla portata dell'ORM e finisce qui.
 --
---  E' IDEMPOTENTE
---      Ogni oggetto e' preceduto da DROP ... IF EXISTS oppure dichiarato con
---      CREATE OR REPLACE. Si puo' rieseguire quante volte si vuole.
---
---  DA CHI VIENE COMPIUTA L'AZIONE
---      PostgreSQL non sa chi e' l'utente applicativo: la connessione e'
---      sempre la stessa per tutti. L'applicazione glielo comunica all'inizio
---      di ogni richiesta con
---          SELECT set_config('app.utente_id', '7', true);
---      e i trigger lo rileggono con current_setting('app.utente_id', true).
---      (Non si puo' usare SET LOCAL: e' un comando di configurazione e non
---      accetta parametri, quindi non si potrebbe passare l'id in modo sicuro.)
---      Il secondo parametro true significa "non fallire se non e' impostato":
---      in quel caso il controllo di ruolo viene semplicemente saltato. Cosi'
---      gli script di popolamento e le query lanciate a mano funzionano senza
---      dover fingere un'identita', mentre i vincoli sui DATI continuano a
---      valere per tutti.
+--  Ogni oggetto è preceduto da DROP ... IF EXISTS oppure dichiarato con
+--  CREATE OR REPLACE. Il file è quindi rieseguibile.
 -- ===========================================================================
 
 
 -- ===========================================================================
+--  FIXME
 --  PARTE 0 - LA MACCHINA A STATI COME DATO
 -- ===========================================================================
 --  Sei righe di configurazione, non dati applicativi: stanno qui e non nel
@@ -58,12 +40,8 @@ INSERT INTO transizione_ammessa (stato_da, stato_a, ruolo, descrizione) VALUES
      'Chiudi la pratica')
 ON CONFLICT DO NOTHING;
 
-
--- ===========================================================================
---  PARTE 1 - FUNZIONE DI SERVIZIO
--- ===========================================================================
-
--- L'id dell'utente applicativo, se l'applicazione lo ha comunicato.
+-- Recupera l'id dell'utente corrente tramite la funzione current_setting
+-- che legge le variabili di configurazione della sessione da cui ottiene l'id
 CREATE OR REPLACE FUNCTION app_utente_corrente()
 RETURNS INTEGER AS $$
 DECLARE
@@ -78,20 +56,9 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 
--- ===========================================================================
---  TRIGGER 1 - COERENZA DEI RUOLI
--- ===========================================================================
---  Nel modello concettuale la relazione "referenza" collegava la Pratica al
---  sottotipo Docente, non a Utente: il vincolo era espresso graficamente.
---  Il collasso della generalizzazione in un'unica tabella lo ha distrutto,
---  perche' tutte le chiavi esterne ora puntano a "utente" e nulla impedisce
---  di mettere uno studente come referente.
---
---  Il vincolo non nasce dal dominio: nasce dalla TRADUZIONE. E' la
---  giustificazione piu' pulita che avete per l'uso di un trigger.
---
---  Perche' non un CHECK: deve leggere la tabella utente.
--- ---------------------------------------------------------------------------
+-- Controlla che ogni pratica abbia prima uno studente e un docente collegato
+-- Inoltre, verifica che se una pratica è stata verificata o chiusa,
+-- l'operazione sia stata fatta dall'utente che ne compete (ufficio)
 
 CREATE OR REPLACE FUNCTION fn_verifica_ruoli_pratica()
 RETURNS TRIGGER AS $$
@@ -139,18 +106,7 @@ CREATE TRIGGER trg_ruoli_pratica
     BEFORE INSERT OR UPDATE ON pratica
     FOR EACH ROW EXECUTE FUNCTION fn_verifica_ruoli_pratica();
 
-
--- ===========================================================================
---  TRIGGER 2 - IMMUTABILITA' DELLA PRATICA CHIUSA
--- ===========================================================================
---  CHIUSA e' uno stato terminale: da li' non si torna indietro e non si
---  modifica piu' nulla.
---
---  Perche' non un CHECK: serve il valore PRECEDENTE della riga (OLD), che un
---  CHECK non conosce. Un CHECK vede solo la versione nuova, e non saprebbe
---  distinguere "questa riga era gia' chiusa" da "questa riga sta venendo
---  chiusa adesso".
--- ---------------------------------------------------------------------------
+-- Impedisce di modificare una pratica se è già stata chiusa
 
 CREATE OR REPLACE FUNCTION fn_pratica_immutabile()
 RETURNS TRIGGER AS $$
@@ -171,27 +127,7 @@ CREATE TRIGGER trg_pratica_immutabile
     FOR EACH ROW EXECUTE FUNCTION fn_pratica_immutabile();
 
 
--- ===========================================================================
---  TRIGGER 3 - TRANSIZIONI DI STATO E LORO PRECONDIZIONI
--- ===========================================================================
---  Due controlli distinti, che conviene tenere separati anche mentalmente.
---
---  (a) LA TRANSIZIONE ESISTE?
---      La coppia (stato precedente, stato nuovo) deve comparire in
---      transizione_ammessa. La macchina a stati e' un DATO, non codice:
---      il corpo di questo trigger non cambia mai, si aggiunge una riga
---      alla tabella. La stessa tabella la interroga l'interfaccia per
---      decidere quali pulsanti mostrare, cosi' le regole stanno in un
---      posto solo.
---
---  (b) I DATI SONO PRONTI?
---      Non basta che la transizione sia ammessa: servono le condizioni
---      sostanziali richieste dalla traccia (un LA approvato, il Transcript
---      caricato, tutti gli esami valutati). Queste contano righe su altre
---      tabelle, quindi sono per forza qui.
---
---  Perche' non un CHECK: (a) ha bisogno di OLD, (b) legge altre tabelle.
--- ---------------------------------------------------------------------------
+-- Controlla se una pratica sia pronta per cambiare stato
 
 CREATE OR REPLACE FUNCTION fn_transizione_stato()
 RETURNS TRIGGER AS $$
@@ -201,14 +137,12 @@ DECLARE
     n              INTEGER;
     la_operativo   INTEGER;
 BEGIN
-    -- Nessun cambio di stato: questo trigger non ha niente da dire.
+    -- Se lo stato non cambia, questo trigger non interviene.
     IF NEW.stato = OLD.stato THEN
         RETURN NEW;
     END IF;
 
-    ------------------------------------------------------------------
-    -- (a) la transizione e' prevista dalla macchina a stati?
-    ------------------------------------------------------------------
+    -- Verifica che la transizione sia ammessa dalla macchina a stati.
     SELECT count(*) INTO n
       FROM transizione_ammessa
      WHERE stato_da = OLD.stato AND stato_a = NEW.stato;
@@ -219,9 +153,7 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
 
-    -- ...e chi la sta compiendo ha il ruolo giusto?
-    -- Solo se l'applicazione ha dichiarato l'utente: gli script di
-    -- popolamento non lo fanno e devono poter lavorare.
+    -- Se l'utente è noto, il suo ruolo deve ammettere la transizione.
     id_attore := app_utente_corrente();
     IF id_attore IS NOT NULL THEN
         SELECT ruolo INTO ruolo_attore FROM utente WHERE id = id_attore;
@@ -240,13 +172,9 @@ BEGIN
         END IF;
     END IF;
 
-    ------------------------------------------------------------------
-    -- (b) precondizioni sui dati
-    ------------------------------------------------------------------
-
-    -- Invio del Learning Agreement: deve esistere una versione pendente,
-    -- col file caricato, con almeno un corso estero, e ogni corso deve
-    -- avere almeno un'equivalenza. Un piano senza mapping non e' un piano.
+    -- Per passare a ATTESA_APPROVAZIONE_LA:
+    -- serve un LA in attesa, con file, almeno un corso estero
+    -- e un'equivalenza per ogni corso.
     IF NEW.stato = 'ATTESA_APPROVAZIONE_LA' THEN
         SELECT count(*) INTO n
           FROM learning_agreement la
@@ -268,8 +196,7 @@ BEGIN
         END IF;
     END IF;
 
-    -- Verifica pre-partenza: requisito 5 della traccia, "solo se il
-    -- Learning Agreement e' stato approvato dal docente referente".
+    -- Per passare a PRE_PARTENZA_COMPLETATA serve un Learning Agreement approvato.
     IF NEW.stato = 'PRE_PARTENZA_COMPLETATA' THEN
         SELECT count(*) INTO n
           FROM learning_agreement
@@ -282,7 +209,8 @@ BEGIN
         END IF;
     END IF;
 
-    -- Rientro: il Transcript deve essere stato caricato.
+    -- Per passare allo stato IN_RICONOSCIMENTO_ESAMI:
+    -- il Transcript of Records deve essere stato caricato.
     IF NEW.stato = 'IN_RICONOSCIMENTO_ESAMI' THEN
         SELECT count(*) INTO n FROM transcript WHERE pratica_id = NEW.id;
         IF n = 0 THEN
@@ -292,9 +220,8 @@ BEGIN
         END IF;
     END IF;
 
-    -- Chiusura: requisito 10 della traccia, "solo quando il Transcript of
-    -- Records e' stato caricato e il riconoscimento degli esami e' stato
-    -- completato".
+    -- Per passare a CHIUSA: Transcript caricato e nessun esame
+    -- registrato ancora senza decisione.
     IF NEW.stato = 'CHIUSA' THEN
         SELECT count(*) INTO n FROM transcript WHERE pratica_id = NEW.id;
         IF n = 0 THEN
@@ -303,7 +230,7 @@ BEGIN
                 USING ERRCODE = 'check_violation';
         END IF;
 
-        -- La versione operativa del piano: l'ultima approvata.
+        -- L'ultima versione approvata del LA.
         SELECT id INTO la_operativo
           FROM learning_agreement
          WHERE pratica_id = NEW.id AND esito = 'APPROVATO'
@@ -316,9 +243,7 @@ BEGIN
                 USING ERRCODE = 'check_violation';
         END IF;
 
-        -- Nessun esame registrato puo' essere rimasto senza decisione.
-        -- Nota: i corsi pianificati e non sostenuti NON hanno una riga in
-        -- esame, e giustamente non richiedono alcuna valutazione.
+        -- Nessun esame registrato può essere rimasto senza decisione.
         SELECT count(*) INTO n
           FROM esame e
           JOIN corso_esterno ce ON ce.id = e.corso_esterno_id
@@ -342,18 +267,8 @@ CREATE TRIGGER trg_transizione_stato
     FOR EACH ROW EXECUTE FUNCTION fn_transizione_stato();
 
 
--- ===========================================================================
---  TRIGGER 4 - QUANDO SI PUO' CREARE UNA NUOVA VERSIONE DEL PIANO
--- ===========================================================================
---  Ammesso in APERTA (prima stesura), in ATTESA_APPROVAZIONE_LA (correzione
---  dopo un rifiuto) e in MOBILITA_IN_CORSO (modifica in corso d'opera,
---  prevista esplicitamente dalla traccia).
---
---  VIETATO da IN_RICONOSCIMENTO_ESAMI in poi: il piano si congela al rientro.
---  E' questo congelamento a garantire che i voti si registrino su una
---  versione che non cambiera' piu', eliminando alla radice il problema della
---  migrazione dei voti fra versioni.
--- ---------------------------------------------------------------------------
+-- Nuove versioni del LA solo in APERTA, ATTESA_APPROVAZIONE_LA
+-- o MOBILITA_IN_CORSO.
 
 CREATE OR REPLACE FUNCTION fn_la_creabile()
 RETURNS TRIGGER AS $$
@@ -379,20 +294,7 @@ CREATE TRIGGER trg_la_creabile
     FOR EACH ROW EXECUTE FUNCTION fn_la_creabile();
 
 
--- ===========================================================================
---  TRIGGER 5 - IL CONTENUTO DI UNA VERSIONE DECISA E' CONGELATO
--- ===========================================================================
---  Corsi esterni ed equivalenze si possono toccare solo finche' la versione
---  a cui appartengono e' IN_ATTESA. Una volta approvata o rifiutata, quella
---  versione e' un documento storico.
---
---  E' cio' che rende vero l'assunto su cui poggia tutto il versionamento:
---  "la versione precedente non e' mai stata alterata". Senza questo trigger
---  il ripristino dopo un rifiuto, che la traccia richiede, sarebbe una
---  promessa non mantenuta.
---
---  Lo stesso trigger serve due tabelle: una funzione, due CREATE TRIGGER.
--- ---------------------------------------------------------------------------
+-- Impedisce la modifica del LA se si trova negli stati APPROVATO o RIFIUTATO.
 
 CREATE OR REPLACE FUNCTION fn_piano_modificabile()
 RETURNS TRIGGER AS $$
@@ -401,7 +303,10 @@ DECLARE
     id_la     INTEGER;
     esito_la  TEXT;
 BEGIN
-    -- Su DELETE la riga interessata e' OLD, altrimenti NEW.
+    -- Siccome il LA è presente sia in Corso Estero che in Equivalenza,
+    -- per avere un solo controllo per entrambi i trigger:
+    -- se stiamo lavorando su corso_esterno, recuperiamo l'id del LA direttamente dalla tabella
+    -- se stiamo lavorando su altre tabelle, dobbiamo prima passare da corso_esterno per ottenere l'id dell'LA
     IF TG_TABLE_NAME = 'corso_esterno' THEN
         id_la := COALESCE(NEW.learning_agreement_id, OLD.learning_agreement_id);
     ELSE
@@ -437,22 +342,7 @@ CREATE TRIGGER trg_equivalenza_modificabile
     FOR EACH ROW EXECUTE FUNCTION fn_piano_modificabile();
 
 
--- ===========================================================================
---  TRIGGER 6 - REGISTRAZIONE E RICONOSCIMENTO DEGLI ESAMI
--- ===========================================================================
---  Due condizioni, entrambe fuori portata per un CHECK perche' attraversano
---  tre tabelle.
---
---  (a) la pratica deve essere in IN_RICONOSCIMENTO_ESAMI: prima del rientro
---      un voto non esiste, dopo la chiusura non si tocca piu';
---  (b) il corso su cui si registra il voto deve appartenere alla VERSIONE
---      OPERATIVA del piano, cioe' l'ultima approvata. Senza questo controllo
---      si potrebbe registrare un voto su un esame di una versione respinta,
---      o addirittura su un corso di un'altra pratica.
---
---  (b) e' il vincolo che l'architettura a versioni rende necessario: e' il
---      prezzo della flessibilita', e va dichiarato come tale.
--- ---------------------------------------------------------------------------
+-- Controlla la registrazione degli esami sostenuti all'estero.
 
 CREATE OR REPLACE FUNCTION fn_esame_registrabile()
 RETURNS TRIGGER AS $$
@@ -470,6 +360,7 @@ BEGIN
 
     SELECT stato INTO stato_pratica FROM pratica WHERE id = id_pratica;
 
+    -- Se la pratica non e' in stato IN_RICONOSCIMENTO_ESAMI, non e' possibile registrare gli esami.
     IF stato_pratica <> 'IN_RICONOSCIMENTO_ESAMI' THEN
         RAISE EXCEPTION
             'Gli esami si registrano solo con la pratica in IN_RICONOSCIMENTO_ESAMI (stato attuale: %)',
@@ -477,6 +368,7 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
 
+    -- Controlla che il corso appartenga alla versione operativa del LA.
     SELECT id INTO la_operativo
       FROM learning_agreement
      WHERE pratica_id = id_pratica AND esito = 'APPROVATO'
@@ -502,25 +394,9 @@ CREATE TRIGGER trg_esame_registrabile
 -- ===========================================================================
 --  VISTE
 -- ===========================================================================
---  Una vista e' una query salvata con un nome, interrogabile come una
---  tabella. Non contiene dati: ogni lettura riesegue la query sottostante.
---
---  Ognuna di queste esiste perche' la stessa domanda ricorre in molti punti
---  dell'applicazione. Tenerla in un posto solo evita di riscrivere la stessa
---  logica in cinque rotte diverse e di dimenticarne una il giorno che cambia.
--- ===========================================================================
 
-
--- ---------------------------------------------------------------------------
---  Il piano operativo: per ogni pratica, l'ultima versione approvata.
---
---  Alternativa scartata: una colonna "corrente" mantenuta da un trigger.
---  Sarebbe dato derivato, quindi ridondanza da giustificare. La vista da'
---  la stessa comodita' senza aggiungere nulla allo schema.
---
---  DISTINCT ON e' specifico di PostgreSQL: tiene la prima riga di ogni
---  gruppo secondo l'ORDER BY. Piu' leggibile della sottoquery con MAX.
--- ---------------------------------------------------------------------------
+-- Recupera la versione del LA più recente che è stata approvata.
+-- Recupera tutte le versioni approvate, le ordina e restituisce solo la più recente.
 CREATE OR REPLACE VIEW v_learning_agreement_corrente AS
 SELECT DISTINCT ON (la.pratica_id)
        la.pratica_id,
@@ -534,16 +410,7 @@ SELECT DISTINCT ON (la.pratica_id)
  ORDER BY la.pratica_id, la.numero_versione DESC;
 
 
--- ---------------------------------------------------------------------------
---  Avanzamento del riconoscimento, per ogni pratica.
---
---  Alimenta il "mancano 3 riconoscimenti su 7" mostrato all'ufficio: molto
---  piu' utile di far sparire un pulsante senza spiegazione.
---
---  I corsi pianificati e non sostenuti non compaiono fra gli esami, e non
---  vengono conteggiati: e' il vantaggio di avere Esame come entita' separata
---  invece che come colonne nulle su Corso esterno.
--- ---------------------------------------------------------------------------
+-- Calcola il numero di esami valutati, in attesa, accettati e la somma dei crediti riconosciuti
 CREATE OR REPLACE VIEW v_stato_riconoscimento_pratica AS
 SELECT p.id                                     AS pratica_id,
        p.codice_pratica,
@@ -568,14 +435,9 @@ SELECT p.id                                     AS pratica_id,
  GROUP BY p.id, p.codice_pratica, p.stato, lac.learning_agreement_id;
 
 
--- ---------------------------------------------------------------------------
---  Le pratiche che l'ufficio puo' effettivamente chiudere.
---
---  Le stesse condizioni che il trigger verifica in scrittura, qui espresse
---  in lettura. Non e' duplicazione inutile: sono i due livelli della difesa
---  in profondita'. Questa vista dice all'interfaccia cosa proporre, il
---  trigger garantisce che nessuno faccia altro.
--- ---------------------------------------------------------------------------
+-- Interroga la vista precedente per ottenere lo stato della pratica.
+-- Se lo stato della pratica è IN_RICONOSCIMENTO_ESAMI, non ci sono altri esami da valutare
+-- e il Transcript è stato caricato, la pratica è pronta per la chiusura.
 CREATE OR REPLACE VIEW v_pratiche_pronte_per_chiusura AS
 SELECT sr.pratica_id,
        sr.codice_pratica,

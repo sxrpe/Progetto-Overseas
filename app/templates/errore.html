@@ -1,5 +1,4 @@
-{# Pagina di errore unica, parametrizzata dal codice HTTP.
-   Registrata in app/__init__.py per 403, 404 e 500. #}
+{# Pagina di errore unica (401, 403, 404, 500), registrata in app/__init__.py. #}
 
 {% extends "base.html" %}
 {% block titolo %}Errore {{ codice }}{% endblock %}

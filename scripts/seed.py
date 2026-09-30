@@ -1,22 +1,13 @@
-"""Popolamento del database con dati di prova.
+"""
+DESCRIZIONE
+    Inserisce i dati di prova: utenti, istituti, corsi interni e due pratiche.
+    Senza questo il database è vuoto e non si può fare login.
+    Si può rilanciare: prima svuota ciò che aveva inserito, poi ricrea tutto.
 
+USO
     python -m scripts.seed
 
-COSA FA
-    Crea gli utenti, gli istituti partner e il catalogo dei corsi interni, piu'
-    una pratica di esempio. Senza questo non potete nemmeno fare login: il
-    database e' vuoto.
-
-E' RIESEGUIBILE
-    Prima di inserire, cancella tutto quello che aveva inserito prima. Cosi'
-    lo potete rilanciare quante volte volete senza accumulare doppioni ne'
-    violare i vincoli di unicita'.
-
-PERCHE' NON INSERISCE PRATICHE IN STATI AVANZATI
-    Perche' i trigger, giustamente, non lo permettono: una pratica non puo'
-    nascere gia' in MOBILITA_IN_CORSO, deve attraversare le transizioni. Per
-    la demo si parte da qui e si fa avanzare la pratica dall'interfaccia, che
-    e' anche il modo migliore di mostrare che i controlli funzionano.
+    Password di tutti gli account di prova: overseas
 """
 
 import datetime as dt
@@ -32,14 +23,11 @@ PASSWORD_DI_PROVA = "overseas"
 
 
 def svuota() -> None:
-    """Cancella i dati esistenti, dal figlio verso il padre.
+    """Cancella i dati di prova, dalle tabelle figlie verso i padri.
 
-    L'ordine conta: cancellare prima un utente che ha pratiche verrebbe
-    rifiutato dalla chiave esterna (ondelete="RESTRICT"). Si parte quindi
-    dalle tabelle che nessuno punta.
-
-    Le tabelle figlie di pratica (learning_agreement, transcript, storico)
-    non compaiono: hanno ondelete="CASCADE" e spariscono da sole.
+    L'ordine conta perché le chiavi esterne verso utente e istituto
+    sono RESTRICT: non si può togliere un utente che ha ancora pratiche.
+    Learning Agreement e Transcript seguono la pratica in CASCADE.
     """
     db.session.execute(sa.delete(Pratica))
     db.session.execute(sa.delete(CorsoInterno))
@@ -49,10 +37,9 @@ def svuota() -> None:
 
 
 def crea_utenti() -> dict[str, Utente]:
-    """Un utente per ruolo, piu' un secondo studente e un secondo docente.
+    """Un account per ruolo, più un secondo studente e un secondo docente.
 
-    Il secondo studente serve a dimostrare il controllo di appartenenza: si
-    entra come studente 2 e si prova ad aprire la pratica dello studente 1.
+    Il secondo studente serve a verificare che nessuno apra le pratiche altrui.
     """
     utenti = {
         "studente": Utente(
@@ -83,7 +70,7 @@ def crea_utenti() -> dict[str, Utente]:
     }
 
     for utente in utenti.values():
-        # Mai la password in chiaro nel database, nemmeno nei dati di prova.
+        # Anche nei dati di prova la password in chiaro non entra nel database.
         utente.imposta_password(PASSWORD_DI_PROVA)
         db.session.add(utente)
 
@@ -92,7 +79,7 @@ def crea_utenti() -> dict[str, Utente]:
 
 
 def crea_istituti() -> list[Istituto]:
-    """Il catalogo degli atenei partner, gestito dall'ufficio."""
+    """Catalogo iniziale degli atenei partner."""
     istituti = [
         Istituto(nome="University of California, Berkeley",
                  paese="Stati Uniti", citta="Berkeley"),
@@ -109,7 +96,7 @@ def crea_istituti() -> list[Istituto]:
 
 
 def crea_corsi_interni() -> list[CorsoInterno]:
-    """Il catalogo degli insegnamenti di Ca' Foscari."""
+    """Catalogo iniziale degli insegnamenti di Ca' Foscari."""
     corsi = [
         CorsoInterno(codice="CT0004", titolo="Basi di dati", crediti=12),
         CorsoInterno(codice="CT0111", titolo="Algoritmi e strutture dati", crediti=12),
@@ -125,7 +112,11 @@ def crea_corsi_interni() -> list[CorsoInterno]:
 
 
 def crea_pratiche(utenti: dict[str, Utente], istituti: list[Istituto]) -> None:
-    """Due pratiche appena aperte, da far avanzare dall'interfaccia."""
+    """Due pratiche in stato APERTA, da far avanzare dall'interfaccia.
+
+    Non si inseriscono stati avanzati a mano: i trigger richiedono le
+    transizioni reali, e per la demo è meglio mostrarle dal sito.
+    """
     pratiche = [
         Pratica(
             codice_pratica="OVS-2025-001",
@@ -154,10 +145,11 @@ def crea_pratiche(utenti: dict[str, Utente], istituti: list[Istituto]) -> None:
 
 
 def main() -> None:
+    """Svuota, ripopola e stampa le credenziali di prova."""
     app = create_app()
 
-    # app_context serve perche' db deve sapere a quale applicazione parla, e
-    # fuori da una richiesta HTTP nessuno glielo dice.
+    # Fuori da una richiesta HTTP serve il contesto applicazione, altrimenti
+    # db non sa a quale app è collegato.
     with app.app_context():
         print("Svuoto le tabelle...")
         svuota()

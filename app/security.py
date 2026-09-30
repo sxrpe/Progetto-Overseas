@@ -1,31 +1,8 @@
-"""Autorizzazione: chi puo' fare cosa.
-
-LA DISTINZIONE DA AVERE CHIARA
-    AUTENTICAZIONE = chi sei.        La gestisce Flask-Login.
-    AUTORIZZAZIONE = cosa puoi fare. Non la gestisce nessuno: sta qui.
-
-I DUE CONTROLLI, ENTRAMBI NECESSARI
-    1. controllo di RUOLO
-       "Questo tipo di utente puo' usare questa funzione?"
-       Esempio: solo l'ufficio puo' chiudere una pratica.
-
-    2. controllo di APPARTENENZA
-       "Questo utente puo' toccare QUESTO oggetto?"
-       Esempio: lo studente 12 puo' vedere la pratica 5 solo se e' sua.
-
-    Il secondo e' quello che si dimentica piu' spesso ed e' il piu' grave:
-    senza, basta cambiare il numero nell'URL per leggere i dati di un altro.
-    Il primo da solo non protegge niente, perche' tutti gli studenti hanno
-    lo stesso ruolo.
-
-DOVE STANNO LE PASSWORD
-    Non qui. I metodi imposta_password() e verifica_password() sono sulla
-    classe Utente in models.py, perche' riguardano l'utente e non
-    l'autorizzazione. Un posto solo per ogni cosa.
-
-PERCHE' UN FILE A PARTE
-    Quando scriverete la sezione della relazione sulle politiche di
-    autorizzazione, il materiale e' gia' tutto raccolto qui.
+"""
+DESCRIZIONE
+    Regole di autorizzazione: chi può fare cosa su una pratica.
+    L'autenticazione (chi sei) la gestisce Flask-Login; qui resta
+    solo il permesso di accesso e di modifica.
 """
 
 from functools import wraps
@@ -36,39 +13,18 @@ from flask_login import current_user
 from app.enums import Ruolo
 
 
-# ===========================================================================
-#  CONTROLLO DI RUOLO
-# ===========================================================================
-
 def ruolo_richiesto(*ruoli_ammessi: str):
-    """Decoratore: consente la rotta solo agli utenti con uno di questi ruoli.
+    """Consente la rotta solo agli utenti con uno dei ruoli indicati.
 
-    Uso:
+    Si usa così, con @login_required sopra, così chi non è entrato
+    viene mandato al login invece di ricevere un 403:
 
-        @studente_bp.route("/pratiche")
         @login_required
         @ruolo_richiesto(Ruolo.STUDENTE)
         def elenco():
-            ...
 
-    L'ORDINE DEI DECORATORI CONTA. @login_required va SOPRA: cosi' chi non e'
-    autenticato viene mandato alla pagina di login, invece di ricevere un 403
-    che non gli dice cosa fare.
 
-    COME FUNZIONA, VISTO CHE I DECORATORI CONFONDONO
-        ruolo_richiesto(Ruolo.STUDENTE) non e' il decoratore: e' una funzione
-        che RESTITUISCE il decoratore. Serve un livello in piu' perche' il
-        decoratore deve ricordarsi quali ruoli accettare.
-
-        Tre livelli, dall'esterno verso l'interno:
-            ruolo_richiesto(...)  riceve i ruoli, restituisce decoratore
-            decoratore(vista)     riceve la tua funzione, restituisce wrapper
-            wrapper(...)          e' quello che Flask chiamera' davvero:
-                                  controlla, e solo se passa chiama la tua
-
-    @wraps(vista) copia nome e documentazione dalla funzione originale al
-    wrapper. Senza, tutte le rotte si chiamerebbero "wrapper" e Flask andrebbe
-    in confusione: url_for() usa proprio quel nome per costruire gli URL.
+    ruolo_richiesto() restituisce il decoratore.
     """
 
     def decoratore(vista):
@@ -85,20 +41,11 @@ def ruolo_richiesto(*ruoli_ammessi: str):
     return decoratore
 
 
-# ===========================================================================
-#  CONTROLLO DI APPARTENENZA
-# ===========================================================================
-
 def puo_vedere_pratica(pratica) -> bool:
-    """Chi ha diritto di LEGGERE questa pratica.
+    """True se l'utente corrente può leggere questa pratica.
 
-    Sono le tre regole del punto 1 dei requisiti funzionali:
-        studente -> solo le proprie
-        docente  -> solo quelle di cui e' referente
-        ufficio  -> tutte
-
-    Nessuna query: studente_id e docente_id sono colonne, sono gia' in
-    memoria insieme alla pratica.
+    Studente solo le proprie, docente solo quelle di cui è referente,
+    ufficio tutte. Non serve una query in più: gli id sono già sulla pratica.
     """
     if not current_user.is_authenticated:
         return False
@@ -112,15 +59,9 @@ def puo_vedere_pratica(pratica) -> bool:
 
 
 def esigi_accesso(pratica) -> None:
-    """Interrompe la richiesta se l'utente non ha diritto di vedere.
+    """Interrompe la richiesta se l'utente non può vedere la pratica.
 
-    PERCHE' 404 E NON 403
-        Un 403 direbbe "questa pratica esiste ma non e' tua". Provando gli
-        identificatori uno per uno si scoprirebbe quante pratiche ci sono e
-        quali numeri sono in uso. Il 404 non distingue fra "non esiste" e
-        "non e' tua", e non lascia trapelare niente.
-
-    Si usa cosi', come prima riga dopo aver caricato la pratica:
+    Si risponde 404 e non 403 cosi non si distingue se non ce una risorsa, oppure se non é di tua competenza
 
         pratica = db.session.get(Pratica, id) or abort(404)
         esigi_accesso(pratica)
@@ -130,16 +71,11 @@ def esigi_accesso(pratica) -> None:
 
 
 def puo_modificare_pratica(pratica) -> bool:
-    """Chi ha diritto di MODIFICARE il contenuto di questa pratica.
+    """True se lo studente titolare può ancora scrivere sulla pratica.
 
-    Piu' stretto della lettura: e' solo lo studente titolare, e solo finche'
-    la pratica non e' chiusa. Il docente e l'ufficio leggono e prendono
-    decisioni, ma non compilano il piano al posto dello studente.
+    Docente e ufficio leggono e decidono, ma non compilano il piano al
+    posto suo. Una pratica chiusa non è più modificabile da qui.
 
-    ATTENZIONE: questo e' il livello applicativo, non l'ultima parola. Le
-    condizioni sostanziali (in quale stato si puo' fare cosa) le riverifica
-    il database con i trigger, e valgono anche per chi scrive senza passare
-    di qui.
     """
     if not current_user.is_authenticated:
         return False
@@ -148,14 +84,13 @@ def puo_modificare_pratica(pratica) -> bool:
     if pratica.studente_id != current_user.id:
         return False
     return pratica.stato != "CHIUSA"
+    # dopo aver controllato che sei lo studente titolare, la modifica è ammessa solo se la pratica non è chiusa.
 
 
 def esigi_modifica(pratica) -> None:
-    """Come esigi_accesso, ma per le operazioni di scrittura.
+    """Come esigi_accesso, ma per le scritture.
 
-    Qui il 403 e' corretto: l'utente sta gia' guardando la pratica, quindi
-    sa che esiste. Non c'e' niente da nascondere, e un messaggio chiaro gli
-    dice perche' non puo' procedere.
+    Qui il 403 va bene l'utente sta già guardando la pratica e sa che esiste.
     """
     if not puo_modificare_pratica(pratica):
         abort(403)

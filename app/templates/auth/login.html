@@ -1,25 +1,5 @@
 {#
-  PAGINA DI ACCESSO.
-
-  COME FUNZIONA UN TEMPLATE JINJA2
-      E' un file HTML normale con dentro tre tipi di parentesi:
-          graffe doppie      stampano un valore
-          graffa-percento    eseguono un'istruzione (if, for, extends, block)
-          graffa-cancelletto sono commenti, e non finiscono nell'HTML
-
-      ATTENZIONE, e' un errore che si fa una volta sola ma costa mezz'ora:
-      i commenti Jinja NON si annidano. Il primo cancelletto-graffa che
-      l'interprete incontra chiude il commento, anche se era dentro una
-      frase. Da li' in poi il testo viene letto come codice. Per questo qui
-      sopra i simboli sono scritti a parole invece che per esteso.
-
-      Il template NON esegue Python: puo' solo leggere le variabili che la
-      rotta gli ha passato con render_template(...). E' voluto, e serve a
-      tenere la logica nelle rotte invece che sparsa nelle pagine.
-
-  La riga qui sotto eredita l'intelaiatura comune da base.html: la struttura
-  HTML, la barra di navigazione, i messaggi flash. Qui si riempie solo il
-  buco chiamato "contenuto".
+  Login. POST alla stessa rotta; email riproposta dopo un errore.
 #}
 {% extends "base.html" %}
 
@@ -37,27 +17,10 @@
           Piattaforma per la gestione delle mobilità Overseas
         </p>
 
-        {#
-          method="post" -> i dati viaggiano nel corpo della richiesta e non
-          nell'URL. Fondamentale per una password: gli URL finiscono nella
-          cronologia del browser e nei log del server.
-
-          action non c'e': il form si invia alla stessa pagina, cioe' alla
-          stessa funzione, che sa gia' distinguere GET da POST.
-        #}
         <form method="post" novalidate>
 
           <div class="mb-3">
             <label for="email" class="form-label">Email</label>
-            {#
-              L'attributo name="email" e' quello che conta: e' la chiave con
-              cui la rotta legge il valore, con request.form.get("email").
-              Se cambi il name, devi cambiare anche la rotta.
-
-              value="{{ email }}" ripropone quello che l'utente aveva scritto
-              dopo un tentativo fallito, cosi' non deve ridigitarlo. La
-              password no: si riscrive sempre.
-            #}
             <input type="email" class="form-control" id="email" name="email"
                    value="{{ email }}" required autofocus
                    autocomplete="username">
@@ -75,10 +38,7 @@
       </div>
     </div>
 
-    {#
-      Promemoria per la demo: queste credenziali arrivano da scripts/seed.py.
-      Il blocco va tolto prima della consegna.
-    #}
+    {# Credenziali da seed.py: da togliere in consegna. #}
     <div class="alert alert-light border mt-3 small mb-0">
       <div class="fw-semibold mb-1">Utenti di prova</div>
       <div class="font-monospace">

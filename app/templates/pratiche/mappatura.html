@@ -1,57 +1,12 @@
 {#
-  MAPPATURA DEGLI ESAMI — una versione del Learning Agreement.
-
-  QUESTA PAGINA SERVE A TRE RUOLI
-      studente   compila e modifica le righe, poi va alla firma
-      docente    guarda e decide: approva oppure rifiuta con motivazione
-      ufficio    guarda e basta: verifica la completezza, non il merito
-
-  Due flag decidono cosa compare:
-
-      sola_lettura   false -> comandi di modifica, riga nuova, JavaScript
-                     true  -> nessun comando, elenco statico
-
-      puo_decidere   true  -> la scheda con Approva e Rifiuta
-                     (ha senso solo insieme a sola_lettura)
-
-  CHI PASSA COSA
-      studente.nuovo_la     sola_lettura=False  puo_decidere=False
-      docente.valuta_la     sola_lettura=True   puo_decidere=True
-      ufficio.vedi_la       sola_lettura=True   puo_decidere=False
-
-  VARIABILI ATTESE DALLA ROTTA
-      pratica         la Pratica
-      versione        il LearningAgreement mostrato
-      corsi           i CorsoEsterno di quella versione, con le equivalenze
-      corsi_interni   il catalogo Ca' Foscari (vuoto in sola lettura)
-
-  COME FUNZIONA IN MODIFICA
-      Ogni riga e' un CorsoEsterno gia' salvato. "Modifica" espande il
-      pannello, "Conferma" manda un POST con fetch e aggiorna la vista
-      compatta senza ricaricare la pagina. La riga nuova nasce dal
-      <template> in fondo: e' identica alle altre ma senza data-id e gia'
-      aperta. La macro qui sotto genera entrambe.
-
-  ATTENZIONE
-      Tutti i pulsanti della lista sono type="button": non stanno dentro un
-      form e non devono inviare niente. I form veri sono solo quelli della
-      decisione del docente, in fondo.
+  Mappatura del Learning Agreement.
+  sola_lettura spegne i comandi; puo_decidere mostra Approva/Rifiuta.
 #}
 
 {% extends "base.html" %}
 
 
-{#
-  MACRO DELLA RIGA.
-
-  Con c valorizzato produce una riga esistente; con c a none produce la riga
-  nuova, gia' aperta e senza gli indirizzi delle rotte (li ricevera' dal
-  server al primo salvataggio).
-
-  corsi_interni e sola_lettura vanno passati esplicitamente: le macro non
-  vedono le variabili del template che le chiama, solo quelle registrate in
-  jinja_env.globals.
-#}
+{# Una riga di corso (esistente o nuova se c è none). #}
 {% macro riga_corso(c, corsi_interni, sola_lettura=false) %}
 <li class="riga card mb-2 {% if not c %}aperta nuova{% endif %}"
     {% if c and not sola_lettura %}
@@ -60,7 +15,6 @@
       data-url-elimina="{{ url_for('studente.elimina_map', id_map=c.id) }}"
     {% endif %}>
 
-  {# ---------- vista compatta ---------- #}
   <div class="riga-compatta d-flex align-items-center gap-3 p-3 flex-wrap">
     {% if c %}
       <span class="font-monospace small" data-campo="codice">{{ c.codice }}</span>
@@ -98,7 +52,6 @@
     {% endif %}
   </div>
 
-  {# ---------- pannello espandibile: solo in modifica ---------- #}
   {% if not sola_lettura %}
     <div class="riga-espansa">
       <div class="riga-espansa-interno">
@@ -169,15 +122,11 @@
 
 {% block contenuto %}
 
-{#
-  Normalizzo i due flag: se una rotta si dimentica di passarli, Jinja li
-  vedrebbe come Undefined e le condizioni darebbero risultati casuali.
-#}
 {% set sola_lettura = sola_lettura | default(false) %}
 {% set puo_decidere = puo_decidere | default(false) %}
 
 
-{# ---------- INTESTAZIONE ---------- #}
+{# Intestazione. #}
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
   <div>
     <h1 class="h4 mb-1">Learning Agreement</h1>
@@ -196,7 +145,6 @@
 </div>
 
 
-{# ---------- I QUATTRO PASSI: solo per chi li deve percorrere ---------- #}
 {% if not sola_lettura %}
   <div class="passi mb-4">
     <span class="passo"><b>1</b> Compila la mappatura</span>
@@ -207,7 +155,7 @@
 {% endif %}
 
 
-{# ---------- LA LISTA ---------- #}
+{# Elenco corsi della versione. #}
 <div id="mappatura"
      {% if not sola_lettura %}
        data-url-crea="{{ url_for('studente.crea_map', id_pratica=pratica.id) }}"
@@ -232,7 +180,6 @@
     {% endfor %}
   </ul>
 
-  {# ---------- totali: utili a chi deve decidere ---------- #}
   {% if sola_lettura and corsi %}
     {% set ns = namespace(estero=0, interno=0) %}
     {% for c in corsi %}
@@ -251,7 +198,6 @@
     </div>
   {% endif %}
 
-  {# ---------- lista vuota ---------- #}
   <div id="lista-vuota" class="card mb-3 {% if corsi %}d-none{% endif %}">
     <div class="card-body text-center py-4">
       <p class="text-body-secondary mb-0 small">
@@ -266,13 +212,9 @@
   </div>
 
 
-  {# =================================================================== #}
-  {#  IN FONDO: cosa si puo' fare, e dipende da chi guarda                #}
-  {# =================================================================== #}
-
   {% if not sola_lettura %}
 
-    {# ---------- STUDENTE: si va alla firma ---------- #}
+    {# Passaggio alla firma. #}
     <a href="{{ url_for('studente.documento_la', id_pratica=pratica.id) }}"
        class="btn btn-success w-100 py-2 {% if not corsi %}disabled{% endif %}">
       Vai alla firma del documento
@@ -285,11 +227,7 @@
 
   {% else %}
 
-    {# ---------- IL DOCUMENTO FIRMATO ---------- #}
-    {#
-      Il nome originale del file e' l'unico segnale che rivela a colpo
-      d'occhio se lo studente ha firmato una versione vecchia.
-    #}
+    {# Documento e decisione (docente / ufficio). #}
     <div class="card mb-3">
       <div class="card-header fw-semibold">Documento firmato dallo studente</div>
       <div class="card-body d-flex align-items-center gap-3 flex-wrap">
@@ -308,7 +246,6 @@
       </div>
     </div>
 
-    {# ---------- ESITO GIA' DECISO ---------- #}
     {% if versione.esito != EsitoDocumento.IN_ATTESA %}
       <div class="card mb-3">
         <div class="card-header fw-semibold">Esito</div>
@@ -327,12 +264,7 @@
       </div>
     {% endif %}
 
-    {# ---------- DOCENTE: la decisione ---------- #}
-    {#
-      Due form separati e non annidati: in HTML un form dentro un form non
-      esiste. Il "required" sulla motivazione e' cio' che impedisce di
-      rifiutare senza spiegare, come chiede il requisito 4.
-    #}
+
     {% if puo_decidere and versione.esito == EsitoDocumento.IN_ATTESA %}
       <div class="card border-primary">
         <div class="card-header fw-semibold">La tua decisione</div>
@@ -374,12 +306,7 @@
 </div>
 
 
-{# ---------- MODELLO DELLA RIGA NUOVA ---------- #}
-{#
-  Il contenuto di <template> viene analizzato dal browser ma non disegnato,
-  e i suoi campi non vengono inviati da nessun form: e' un ritaglio di HTML
-  in attesa, che lo script clona quando serve.
-#}
+{# Modello HTML per una riga nuova (clonato dallo script). #}
 {% if not sola_lettura %}
   <template id="modello-riga">
     {{ riga_corso(none, corsi_interni, false) }}
@@ -390,13 +317,9 @@
 
 
 {% block script %}
-{#
-  Lo script serve solo in modifica. In sola lettura non va nemmeno caricato:
-  cercherebbe btn-aggiungi, otterrebbe null, e null.addEventListener()
-  farebbe fallire tutto il JavaScript della pagina.
-#}
 {% if not sola_lettura | default(false) %}
 <script>
+// Mappatura in modifica: salva ed elimina le righe via fetch.
 (function () {
   "use strict";
 
@@ -404,12 +327,7 @@
   const lista = document.getElementById("lista-corsi");
   const vuota = document.getElementById("lista-vuota");
 
-  // ------------------------------------------------------------------
-  // UN SOLO ASCOLTATORE PER TUTTA LA LISTA.
-  // Registrandolo sul contenitore invece che su ogni pulsante, funziona
-  // anche sulle righe aggiunte dopo, che al momento della registrazione
-  // non esistevano ancora.
-  // ------------------------------------------------------------------
+  // Un ascoltatore sulla lista vale anche per le righe aggiunte dopo.
   lista.addEventListener("click", function (evento) {
     const riga = evento.target.closest(".riga");
     if (!riga) return;
@@ -429,7 +347,6 @@
     nuova.scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 
-  // Raccoglie tutti i campi con un attributo name dentro la riga.
   function campi(riga) {
     const dati = new FormData();
     riga.querySelectorAll("[name]").forEach(function (campo) {
@@ -477,12 +394,9 @@
         return;
       }
 
-      // Una riga nuova non ha ancora la vista compatta completa.
-      // Ricostruirla qui significherebbe duplicare in JavaScript la logica
-      // del template: ricaricare costa una richiesta ed e' sempre corretto.
+      // Dopo la creazione si ricarica la pagina; in modifica si aggiorna la riga.
       if (nuova) { location.reload(); return; }
 
-      // Riga esistente: aggiorna solo i pezzi che il server ha rimandato.
       Object.entries(esito.corso).forEach(function ([chiave, valore]) {
         const posto = riga.querySelector('[data-campo="' + chiave + '"]');
         if (posto) posto.textContent = valore;
@@ -497,7 +411,7 @@
   }
 
   async function elimina(riga) {
-    // Una riga mai salvata si toglie e basta: nel database non c'e' niente.
+    // Riga non ancora salvata: basta toglierla dalla pagina.
     if (riga.classList.contains("nuova")) {
       riga.remove();
       if (!lista.children.length) vuota.classList.remove("d-none");

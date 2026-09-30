@@ -1,28 +1,9 @@
-"""Application factory: il montaggio dell'applicazione.
-
-COSA FA QUESTO FILE
-    La funzione create_app() prende i pezzi sparsi (configurazione, database,
-    login, blueprint, pagine di errore) e li assembla in un'applicazione
-    Flask funzionante.
-
-PERCHE' UNA FUNZIONE E NON UNA VARIABILE GLOBALE
-    Perche' cosi' puoi crearne piu' di una, con configurazioni diverse: una
-    per lo sviluppo, una per la demo, una per i test. E' lo schema
-    raccomandato dalla documentazione di Flask.
-
-L'ORDINE DELLE OPERAZIONI NON E' NEGOZIABILE
-    1. crea l'app e carica la configurazione
-       (init_app legge da qui l'indirizzo del database)
-    2. collega le estensioni (db, login)
-    3. IMPORTA i modelli
-       (se salti questo, db.create_all() crea zero tabelle SENZA dare errore)
-    4. definisce la user_loader di Flask-Login
-    5. mette a disposizione dei template le costanti degli enum
-    6. registra i blueprint
-    7. registra le pagine di errore
-
-QUANDO LO TOCCHI
-    Praticamente mai, dopo oggi. Solo se aggiungi un blueprint nuovo.
+"""
+DESCRIZIONE
+    Application factory: assembla configurazione, database, login,
+    blueprint e pagine di errore in un'applicazione Flask pronta.
+    Si chiama create_app così si possono avere ambienti diversi
+    (dev, demo) senza oggetti globali sparsi.
 """
 
 import sqlalchemy as sa
@@ -32,88 +13,48 @@ from config import CONFIGS, Config
 
 
 def create_app(nome_config: str = "dev") -> Flask:
+    """Monta e restituisce l'applicazione.
+
+    L'ordine conta: prima la config, poi le estensioni,
+    poi i modelli, poi login, template, blueprint e errori.
+    """
     app = Flask(__name__)
     app.config.from_object(CONFIGS.get(nome_config, Config))
 
-    # Le estensioni si importano QUI DENTRO, non in cima al file:
-    # importarle fuori ricrea l'import circolare che extensions.py evita.
+    # Import qui dentro, non in cima al file, per non riaprire
+    # l'import circolare che extensions.py evita.
     from app.extensions import db, login_manager
 
     db.init_app(app)
     login_manager.init_app(app)
 
-    # ------------------------------------------------------------------
-    # I MODELLI VANNO IMPORTATI PRIMA DI create_all().
-    # SQLAlchemy conosce solo le classi che sono state effettivamente
-    # eseguite: se questa riga manca, i metadati restano vuoti e
-    # "python -m scripts.init_db" crea zero tabelle senza dare errore.
-    #
-    # "noqa: F401" dice agli strumenti di controllo del codice: lo so che
-    # sembra un import inutilizzato, e' voluto.
-    # ------------------------------------------------------------------
+    # I modelli devono essere importati prima di create_all(), altrimenti
+    # SQLAlchemy non conosce le tabelle e le crea in silenzio a zero.
     from app import models  # noqa: F401
     from app.models import Utente
 
-    # ------------------------------------------------------------------
-    # FLASK-LOGIN: dall'identita' salvata nel cookie all'oggetto Utente.
-    #
-    # Viene chiamata a OGNI richiesta in cui serve current_user. L'id
-    # arriva come stringa perche' i cookie contengono solo testo, da qui
-    # la conversione con int().
-    #
-    # Nel cookie c'e' solo l'id, firmato con la SECRET_KEY. Non la
-    # password, non il ruolo: cosi' se un utente viene disabilitato o
-    # cambia ruolo, la modifica ha effetto alla richiesta successiva e non
-    # alla scadenza del cookie.
-    #
-    # Flask cattura l'id interno al cookie firmato da una chiave privata che gestisce lui
-    # passa alla funzione carica utente la stringa del cookie e va a catturare nel db la sessione relativa all'utente connesso (ad ogni richiesta
-    # che richieda quel gener edi informazioni = cioe tutte)
-    # ------------------------------------------------------------------
     @login_manager.user_loader
     def carica_utente(id_utente: str):
+        """Dal cookie firmato ricostruisce l'oggetto Utente a ogni richiesta."""
         return db.session.get(Utente, int(id_utente))
 
-    # ------------------------------------------------------------------
-    # COMUNICARE AL DATABASE CHI STA AGENDO.
-    #
-    # PostgreSQL non sa chi e' l'utente applicativo: la connessione e'
-    # sempre la stessa. Questa riga glielo dice all'inizio di ogni
-    # richiesta, e i trigger la rileggono con current_setting() per
-    # verificare il ruolo di chi cambia stato e per riempire lo storico.
-    #
-    # ------------------------------------------------------------------
     @app.before_request
-    def dichiara_utente_al_database():
+    def dichiara_utente_al_database(): # FIXME Da eliminare
+        """Dice a PostgreSQL quale utente applicativo sta agendo.
+
+        La connessione al database è sempre la stessa; i trigger leggono
+        app.utente_id tramite current_setting() per controllare i ruoli.
+        set_config con parametro evita di concatenare l'id nella stringa SQL.
+        """
         from flask_login import current_user
 
         if current_user.is_authenticated:
-            # NON si puo' scrivere "SET LOCAL app.utente_id = :id".
-            # SET LOCAL e' un comando di configurazione, non una query, e
-            # PostgreSQL non accetta parametri al suo interno: il driver
-            # sostituirebbe :id con un segnaposto $1 e il parser lo rifiuta.
-            #
-            # set_config() fa la stessa identica cosa ma e' una FUNZIONE,
-            # quindi i parametri li accetta. Il terzo argomento, true,
-            # significa "solo per questa transazione": e' l'equivalente
-            # esatto della parola LOCAL.
-            #
-            # Concatenare l'id nella stringa funzionerebbe, ma sarebbe una
-            # SQL injection in attesa di succedere. Il parametro no.
             db.session.execute(
                 sa.text("SELECT set_config('app.utente_id', :id, true)"),
                 {"id": str(current_user.id)},
             )
 
-    # ------------------------------------------------------------------
-    # COSTANTI DISPONIBILI NEI TEMPLATE.
-    #
-    # Senza questo, in un template non potresti scrivere
-    #     {{ StatoPratica.ETICHETTE[pratica.stato] }}
-    # perche' Jinja vede solo le variabili passate a render_template().
-    # Registrandole come "globali" diventano visibili in tutte le pagine,
-    # e non devi ripassarle a ogni chiamata.
-    # ------------------------------------------------------------------
+    # Enum disponibili in tutti i template, senza ripassarli a ogni render.
     from app.enums import (
         EsitoDocumento,
         EsitoRiconoscimento,
@@ -121,7 +62,7 @@ def create_app(nome_config: str = "dev") -> Flask:
         Ruolo,
         StatoPratica,
     )
-    # Sono le variabili pubbliche del render template jinja che sfrutta per renderizzare, senza dovergli passare ogni volta mille parametri
+    # Associazioni Enum = Oggetti jinja
     app.jinja_env.globals.update(
         Ruolo=Ruolo,
         Periodo=Periodo,
@@ -130,13 +71,9 @@ def create_app(nome_config: str = "dev") -> Flask:
         EsitoRiconoscimento=EsitoRiconoscimento,
     )
 
-    # ------------------------------------------------------------------
-    # BLUEPRINT: un'area del sito per ogni gruppo di funzionalita'.
-    # L'URL dice gia' chi dovrebbe poterci accedere: tutto cio' che sta
-    # sotto /docente/ e' per i docenti. Non e' un controllo di sicurezza
-    # (quello sta nelle rotte), ma rende i permessi verificabili a colpo
-    # d'occhio guardando la mappa degli URL.
-    # ------------------------------------------------------------------
+
+
+    # Ogni blueprint porta le rotte di un'area del sito.
     from app.blueprints.auth import auth_bp
     from app.blueprints.docente import docente_bp
     from app.blueprints.pratiche import pratiche_bp
@@ -144,30 +81,28 @@ def create_app(nome_config: str = "dev") -> Flask:
     from app.blueprints.studente import studente_bp
     from app.blueprints.ufficio import ufficio_bp
 
-    app.register_blueprint(pubblico_bp)                      # /
-    app.register_blueprint(pratiche_bp, url_prefix="/pratiche" )                      # /pratiche/...
-    app.register_blueprint(auth_bp, url_prefix="/auth")      # /auth/...
+    # Il prefisso rende leggibile l'URL; i controlli di accesso stanno nelle rotte.
+    app.register_blueprint(pubblico_bp)
+    app.register_blueprint(pratiche_bp, url_prefix="/pratiche")
+    app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(studente_bp, url_prefix="/studente")
     app.register_blueprint(docente_bp, url_prefix="/docente")
     app.register_blueprint(ufficio_bp, url_prefix="/ufficio")
 
     _registra_pagine_errore(app)
 
-    # La cartella degli upload deve esistere, altrimenti il primo
-    # caricamento fallisce con un errore di sistema poco comprensibile.
+    # Senza questa cartella il primo upload di un documento andrebbe in errore.
     app.config["UPLOAD_FOLDER"].mkdir(parents=True, exist_ok=True)
 
     return app
 
 
 def _registra_pagine_errore(app: Flask) -> None:
-    """Pagine di errore uniformi, invece della schermata grezza di Flask."""
+    """Collega le pagine di errore al posto della schermata grezza di Flask."""
 
     @app.errorhandler(401)
     def non_autenticato(_):
-        # Non dovrebbe quasi mai comparire: @login_required intercetta prima
-        # e manda alla pagina di accesso. Resta come rete di sicurezza per le
-        # rotte protette solo da @ruolo_richiesto.
+        # Nella pratica compare di rado, perché @login_required manda al login.
         return render_template(
             "errore.html", codice=401,
             messaggio="Devi accedere per usare questa funzione."
@@ -191,9 +126,8 @@ def _registra_pagine_errore(app: Flask) -> None:
     def errore_interno(_):
         from app.extensions import db
 
-        # Fondamentale: una transazione lasciata a meta' va sempre annullata,
-        # altrimenti la sessione resta inutilizzabile per tutta la richiesta e
-        # ogni query successiva fallisce con un errore che non c'entra niente.
+        # Se resta aperta una transazione fallita, le query successive
+        # sulla stessa richiesta non funzionano più in modo affidabile.
         db.session.rollback()
         return render_template(
             "errore.html", codice=500,

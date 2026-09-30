@@ -1,19 +1,9 @@
-"""Istanze delle estensioni Flask.
-
-COSA FA QUESTO FILE
-    Crea gli oggetti delle estensioni VUOTI, senza collegarli a nessuna
-    applicazione. Il collegamento avviene dopo, dentro create_app().
-
-PERCHE' SEPARATO
-    Per evitare gli import circolari. I modelli hanno bisogno di "db", ma se
-    lo importassero dall'applicazione si creerebbe un anello:
-        app  ->  models  ->  app  ->  models  ->  ...
-    Mettendo "db" in un file a parte l'anello si spezza:
-        app  ->  models  ->  extensions
-        app  ->  extensions
-
-QUANDO LO TOCCHI
-    Quasi mai. Solo se aggiungi una nuova estensione Flask.
+"""
+DESCRIZIONE
+    Definisce gli oggetti delle estensioni Flask ancora scollegati dall'app.
+    Il collegamento avviene in create_app() con init_app().
+    Stanno in un file a parte per evitare import circolari tra applicazione,
+    modelli ed estensioni.
 """
 
 from flask_login import LoginManager
@@ -22,25 +12,16 @@ from sqlalchemy.orm import DeclarativeBase
 
 
 class Base(DeclarativeBase):
-    """Classe base dichiarativa, stile SQLAlchemy 2.0.
-
-    Tutti i modelli erediteranno da qui (tramite db.Model). Usare una Base
-    esplicita, invece del vecchio db.Model automatico, abilita le annotazioni
-    di tipo Mapped[...] che permettono a SQLAlchemy di dedurre da sole se una
-    colonna e' NOT NULL.
-    """
+    """Base dichiarativa di SQLAlchemy 2.0, usata da tutti i modelli."""
 
 
-# L'oggetto attraverso cui si parla al database.
-#   db.session  -> la sessione, legata alla singola richiesta HTTP
-#   db.Model    -> la classe base dei modelli
-#   db.select() -> costruisce le query
+# Punto di accesso al database: sessione, modelli e costruzione delle query.
 db = SQLAlchemy(model_class=Base)
 
-# L'oggetto che gestisce chi e' collegato.
+# Gestisce l'utente collegato nella sessione corrente.
 login_manager = LoginManager()
 
-# Dove mandare chi tenta di aprire una pagina protetta senza essere entrato (Inizializzo l'oggetto Login_manager)
-login_manager.login_view = "auth.login"   # uguale a url_for('auth.login'): nome del blueprint, punto, nome della funzione.
+# Pagina di destinazione se si apre una rotta protetta senza essere entrati.
+login_manager.login_view = "auth.login"
 login_manager.login_message = "Devi accedere per visualizzare questa pagina."
 login_manager.login_message_category = "warning"

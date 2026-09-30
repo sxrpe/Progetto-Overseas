@@ -1,39 +1,25 @@
-"""Area studente.  ->  Da scrivere in FASE 7 (punti 7.2, 7.3, 7.6, 7.8).
+"""
+DESCRIZIONE
+    Area studente: pratiche, Learning Agreement, date, esami, rientro.
+    Il filtro per studente_id sta sempre nella query, non nel template.
 
-ROUTE PREVISTE
-    GET  /studente/pratiche                     elenco delle PROPRIE pratiche
-    GET  /studente/pratiche/nuova               form di creazione
-    POST /studente/pratiche/nuova               creazione
-    GET   /studente/pratiche/<id>/la                 mappatura del piano
-    POST  /studente/pratiche/<id>/la/mapping         aggiunta riga      -> JSON
-    POST  /studente/la/mapping/<id_map>/modifica     modifica riga      -> JSON
-    POST  /studente/la/mapping/<id_map>/elimina      eliminazione riga  -> JSON
-LE DUE REGOLE DA NON VIOLARE MAI IN QUESTO FILE
-
-    1. Il filtro sta NELLA QUERY, non nel template.
-       Giusto:     .where(Pratica.studente_id == current_user.id)
-       Sbagliato:  caricare tutto e poi nascondere le righe altrui in Jinja.
-       La seconda non e' un filtro: e' una falla.
-
-    2. Ogni route che riceve un <id> deve chiamare esigi_accesso().
-       Senza, basta cambiare il numero nell'URL per leggere la pratica di un
-       altro studente.
-
-ATTENZIONE ALLE QUERY A CASCATA
-    Se l'elenco carica 50 pratiche e il template legge pratica.istituto.nome,
-    l'ORM esegue 51 query invece di 1. Si risolve chiedendo il caricamento
-    anticipato:
-        .options(selectinload(Pratica.istituto), selectinload(Pratica.docente))
-    Per accorgertene: metti SQL_ECHO=1 nel .env e conta le righe che scorrono.
-
-
-
-
-    200   ok                 il valore predefinito
-    400   Bad Request        i dati che mi hai mandato non vanno bene
-    403   Forbidden          non hai i permessi
-    404   Not Found          non esiste
-    500   Internal Error     ho sbagliato io
+MAPPA
+    GET  /studente/pratiche                              elenco_pratiche     le mie pratiche
+    GET  /studente/pratiche/nuova                        nuova_pratica       form creazione
+    POST /studente/pratiche/nuova                        nuova_pratica       salva pratica
+    GET  /studente/pratiche/<id>/la                      nuovo_la            mappatura piano
+    POST /studente/pratiche/<id>/la/scarta               scarta_bozza        elimina bozza
+    POST /studente/pratiche/<id>/la/mapping              crea_map            aggiunge riga (JSON)
+    POST /studente/la/mapping/<id>/modifica              modifica_map        modifica riga (JSON)
+    POST /studente/la/mapping/<id>/elimina               elimina_map         elimina riga (JSON)
+    GET  /studente/pratiche/<id>/la/documento.pdf        documento_pdf       anteprima/download PDF
+    GET  /studente/pratiche/<id>/la/documento            documento_la        pagina firma
+    POST /studente/pratiche/<id>/la/documento            documento_la        carica PDF firmato
+    POST /studente/pratiche/<id>/inizio                  registra_inizio     data arrivo
+    GET  /studente/pratiche/<id>/esami                   vedi_esami          inserimento voti
+    POST /studente/pratiche/<id>/esami/<id>/salva        salva_esame         salva voto (JSON)
+    POST /studente/pratiche/<id>/esami/<id>/elimina      elimina_esame       scarta voto (JSON)
+    POST /studente/pratiche/<id>/rientro                 registra_rientro    rientro + Transcript
 """
 import datetime as dt
 
@@ -53,17 +39,18 @@ from app.documenti import (DocumentoNonValido, elimina_documento,
 studente_bp = Blueprint("studente", __name__)
 
 # ============================================================================
-# PAGINA DI BASE : ELENCO DELLE PRATICHE
+# ELENCO PRATICHE
+# GET  /studente/pratiche  ->  elenco_pratiche
 # ============================================================================
 @studente_bp.route("/pratiche", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def elenco_pratiche():
     """Le pratiche dello studente collegato, e solo le sue.
-        option pre carica nell'oggetto le informazioni, di base si crea un'oggetto, e poi quando richiedi una info legata
-        ad una chiave estera, sotto viene fatta una query, precaricarlo cosi semplifica di molto le richieste al db
-        Ordinamento : ordiniamo per anno accademico e sucessivamente per il codice pratica
-        scalard e all ci permettono di creare una lista di oggetti python
+
+    selectinload precarica istituto e docente: senza, ogni riga nel template
+    farebbe una query in più (N+1). scalars().all() restituisce una lista
+    di oggetti Python. Ordinamento: anno desc, poi codice pratica.
     """
     pratiche = db.session.scalars(
         sa.select(Pratica)
@@ -78,17 +65,21 @@ def elenco_pratiche():
     return render_template("studente/elenco.html", pratiche=pratiche)
 
 # ============================================================================
-# MODULO : CREAZIONE NUOVA PRATICA
+# UTILITY CREAZIONE PRATICA
 # ============================================================================
 def _intero(nome_campo):
-    """Legge un campo del form come intero, None se manca o non è un numero."""
+    """Legge un campo del form come intero; None se manca o non è un numero."""
     try:
         return int(request.form.get(nome_campo, ""))
     except ValueError:
         return None
 
 def _dati_modulo():
-    """Le liste che servono a riempire i menu del modulo,da settembre in poi l'anno accademico è quello nuovo """
+    """Liste per i menu del form (atenei, docenti, anni).
+
+    Da settembre l'anno accademico è quello nuovo. Ritorna un dizionario:
+    con **_dati_modulo() le chiavi diventano argomenti del render_template.
+    """
     oggi = dt.date.today()
     anno_corrente = oggi.year if oggi.month >= 9 else oggi.year - 1
     return {
@@ -103,18 +94,23 @@ def _dati_modulo():
         "anni": [anno_corrente, anno_corrente + 1],
     }
 
+# ============================================================================
+# NUOVA PRATICA
+# GET/POST  /studente/pratiche/nuova  ->  nuova_pratica
+# ============================================================================
 @studente_bp.route("/pratiche/nuova", methods=["GET", "POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def nuova_pratica():
+    """Form di creazione (GET) e salvataggio della pratica (POST)."""
 
     if request.method == "GET":
-       # "**_dati_modulo() esegue e spacchetta il dizionario "
+        # ** spacchetta il dizionario: atenei/docenti/anni → argomenti del template
         return render_template("studente/nuova_pratica.html",**_dati_modulo(),
                                anno_selected=None, periodo_selected=None,istituto_selected=None, docente_selected=None,
                                note_selected=None)
     else:
-        #"Gestiamo l'invio del FORM"
+        # Invio del form: leggiamo i campi e validiamo
 
         anno_selected = _intero("anno_accademico")
 
@@ -127,22 +123,22 @@ def nuova_pratica():
         docente_selected = _intero("docente_id")
         note_selected = (request.form.get("note") or "").strip() or None
 
-        #"Gestione campi non completati correttamente"
+        # Campi incompleti → ripresentiamo il form con ciò che aveva già scritto
         if None in (anno_selected, periodo_selected,
                     istituto_selected, docente_selected):
             flash("Compila tutti i campi.", "danger")
             return render_template("studente/nuova_pratica.html",**_dati_modulo(),periodo_selected=periodo_selected, istituto_selected=istituto_selected, anno_selected=anno_selected, docente_selected=docente_selected, note_selected=note_selected)
 
-        #"Formattazione del nome della Pratica : sa.func.count() = count(*)"
+        # Codice OVS-AAAA-NNN. sa.func.count() = count(*) SQL sull'anno scelto.
         quante = db.session.scalar(
             sa.select(sa.func.count())
             .select_from(Pratica)
             .where(Pratica.anno_accademico == anno_selected)
         )
+        # :03d = tre cifre con zeri davanti = es. OVS-2025-001
         codice = f"OVS-{anno_selected}-{quante + 1:03d}"
-        #"OVS-2025-001   :03d formatta l'intero su tre cifre riempendo le cifre con gli zeri"
 
-       # "NOTA IMPORTANTE : Due studenti che premono nello stesso millisecondo potrebbero generare lo stesso codice. Il UNIQUE lo blocca e finisci nell'except del punto 7. Su questo progetto va bene così — è una riga fra le assunzioni della relazione."
+
         pratica = Pratica(
             codice_pratica=codice,
             anno_accademico=anno_selected,
@@ -179,14 +175,14 @@ def nuova_pratica():
 
 
 # ============================================================================
-# MAPPING : UTILITY
+# UTILITY MAPPING
 # ============================================================================
 def _bozza_aperta(pratica: Pratica):
     """La versione del piano ancora in attesa di decisione, o None.
 
-       Ce n'e' al massimo una per pratica: lo garantisce l'indice unico
-       parziale uq_la_una_sola_in_attesa.
-       """
+    Ce n'è al massimo una per pratica: lo garantisce l'indice unico
+    parziale uq_la_una_sola_in_attesa.
+    """
     versione = db.session.scalar(
         sa.select(LearningAgreement)
         .where(LearningAgreement.pratica_id == pratica.id)
@@ -208,37 +204,39 @@ def _corso_esterno_dello_studente(id_map):
     if corso is None:
         abort(404)
     pratica = corso.learning_agreement.pratica
-    esigi_accesso(pratica)      # 404 se non e' sua
+    esigi_accesso(pratica)      # 404 se non è sua
     esigi_modifica(pratica)     # 403 se lo stato non lo permette
     return corso
 
 def _pratica_dello_studente(id_pratica):
+    """Carica la pratica: 404 se non esiste, poi controllo accesso e modifica."""
     pratica = db.session.get(Pratica, id_pratica)
     if pratica is None:
         abort(404)
     esigi_accesso(pratica)
     esigi_modifica(pratica)
     return pratica
-# ============================================================================
-# PAGINA DI BASE/CREAZIONE LA : MAPPING LEARNIN E AGREEMENTS
-# ============================================================================
 
-# La pagina della mappatura.
+# ============================================================================
+# MAPPATURA LEARNING AGREEMENT
+# GET  /studente/pratiche/<id>/la  ->  nuovo_la
+# ============================================================================
 @studente_bp.route("/pratiche/<int:id_pratica>/la", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def nuovo_la(id_pratica: int):
+    """Pagina di mappatura: apre o riprende la bozza del piano."""
 
     pratica = _pratica_dello_studente(id_pratica)
-    #Carichiamo la lista dei Corsi Interni
+    # Menu a tendina: corsi Unive con cui fare equivalenza
     corsi_interni = db.session.scalars(
         sa.select(CorsoInterno).order_by(CorsoInterno.codice)
     ).all()
 
     versione = _bozza_aperta(pratica)
 
-    # Gestione nessuna bozza: crearne una nuova
-    # Gestione nessuna bozza: crearne una nuova
+    # Nessuna bozza aperta → ne apriamo una. Se esiste un piano approvato,
+    # ne copiamo i corsi così la modifica parte da quello e non da zero.
     if versione is None:
         ultimo = db.session.scalar(
             sa.select(sa.func.max(LearningAgreement.numero_versione))
@@ -250,7 +248,8 @@ def nuovo_la(id_pratica: int):
 
         vecchia_versione = _versione_approvata(pratica)
         if vecchia_versione:
-            db.session.flush()  # Fa esistere l'ID della nuova versione
+            # flush: senza id della nuova versione non si possono attaccare i corsi
+            db.session.flush()
             for c_vecchio in _corsi_della_versione(vecchia_versione):
                 c_nuovo = CorsoEsterno(
                     codice=c_vecchio.codice, titolo=c_vecchio.titolo,
@@ -260,10 +259,9 @@ def nuovo_la(id_pratica: int):
                     c_nuovo.equivalenze.append(Equivalenza(corso_interno_id=eq_vecchia.corso_interno_id))
                 db.session.add(c_nuovo)
 
-        # SALVA TUTTO NEL DATABASE
         db.session.commit()
 
-        # ORA CARICA I CORSI APPENA SALVATI, INVECE DI PASSARE []
+        # Ricarichiamo i corsi appena salvati (non passiamo [])
         corsi_salvati = _corsi_della_versione(versione)
 
         return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
@@ -278,16 +276,16 @@ def nuovo_la(id_pratica: int):
             )
             .order_by(CorsoEsterno.codice)
         ).all()
-        # {{ c.equivalenze[0].corso_interno.codice }} sono due selection load annidati
+        # due selectinload annidati: nel template c.equivalenze[0].corso_interno.codice
+        # senza N+1 (equivalenza + corso interno già in memoria)
         return render_template('pratiche/mappatura.html', pratica=pratica, versione=versione,
                                corsi=corsi,corsi_interni=corsi_interni, sola_lettura=False, puo_decidere=False)
 
 
 # ============================================================================
-# SCARTARE LA BOZZA DI UN LA
+# SCARTA BOZZA
+# POST  /studente/pratiche/<id>/la/scarta  ->  scarta_bozza
 # ============================================================================
-
-
 @studente_bp.route("/pratiche/<int:id_pratica>/la/scarta", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
@@ -296,7 +294,8 @@ def scarta_bozza(id_pratica: int):
     pratica = _pratica_dello_studente(id_pratica)
     versione = _bozza_aperta(pratica)
 
-    # Si può scartare solo se c'è una bozza IN_ATTESA e il PDF NON è ancora stato caricato
+    # Si scarta solo se è ancora bozza IN_ATTESA e il PDF non è stato caricato.
+    # Dopo l'invio del documento non si torna indietro da qui.
     if versione is not None and versione.file_path is None:
         db.session.delete(versione)
         db.session.commit()
@@ -307,22 +306,22 @@ def scarta_bozza(id_pratica: int):
     return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
 # ============================================================================
-# GESTIONE MAPPING : CREAZIONE
+# CREA RIGA MAPPING
+# POST  /studente/pratiche/<id>/la/mapping  ->  crea_map
 # ============================================================================
-
-
-# Aggiunge una riga di mapping. Risponde JSON.
 @studente_bp.route("/pratiche/<int:id_pratica>/la/mapping", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def crea_map(id_pratica: int):
+    """Aggiunge una riga di mapping. Risposta JSON: la pagina non si ricarica,
+    è lo script JS che aggiorna la tabella."""
     pratica = _pratica_dello_studente(id_pratica)
 
     codice = request.form.get("codice", "").strip().upper()
     titolo = request.form.get("titolo", "").strip()
     crediti = _intero("crediti")
     corso_interno_id = _intero("corso_interno_id")
-    # ritorniamo un json perche la richiesta non ricarica la pagina, é lo script di javascript che attende una risposta alla richiesta senza ricaricare la paginas
+    # jsonify perché la chiamata è AJAX: niente redirect, solo ok/errore
     if not codice or not titolo or crediti is None or corso_interno_id is None:
         return jsonify(ok=False, errore="Compila tutti i campi."), 400
 
@@ -340,8 +339,8 @@ def crea_map(id_pratica: int):
         crediti=crediti,
         learning_agreement_id=versione.id,
     )
-    # Appendiamo l'aggiunta dell'equivalenza, perche l'id del corso esterno non esiste ancora, esiste quando facciamo il commit,
-    # cosi stiamo appendendo l'aggiunta al database
+    # L'id del corso esterno nasce al commit: append sull'oggetto ORM basta,
+    # SQLAlchemy salva l'equivalenza insieme quando fa il flush.
     corso_esterno.equivalenze.append(
         Equivalenza(corso_interno_id=corso_interno_id)
     )
@@ -359,22 +358,20 @@ def crea_map(id_pratica: int):
 
 
 # ============================================================================
-# GESTIONE MAPPING : MODIFICA
+# MODIFICA RIGA MAPPING
+# POST  /studente/la/mapping/<id>/modifica  ->  modifica_map
 # ============================================================================
-
-
-# Modifica una riga esistente. Risponde JSON.
 @studente_bp.route("/la/mapping/<int:id_map>/modifica", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def modifica_map(id_map: int):
+    """Modifica una riga esistente. Anche qui risposta JSON (AJAX)."""
     corso_esterno =  _corso_esterno_dello_studente(id_map)
 
     codice = request.form.get("codice", "").strip().upper()
     titolo = request.form.get("titolo", "").strip()
     crediti = _intero("crediti")
     corso_interno_id = _intero("corso_interno_id")
-    # ritorniamo un json perche la richiesta non ricarica la pagina, é lo script di javascript che attende una risposta alla richiesta senza ricaricare la paginas
     if not codice or not titolo or crediti is None or corso_interno_id is None:
         return jsonify(ok=False, errore="Compila tutti i campi."), 400
 
@@ -385,13 +382,12 @@ def modifica_map(id_map: int):
     corso_esterno.crediti = crediti
     corso_esterno.codice = codice
 
-    # Sostituisce l'equivalenza: clear() cancella la riga vecchia grazie al
-    # cascade delete-orphan, append aggiunge quella nuova.
+    # Sostituisce l'equivalenza: clear() cancella la riga vecchia
+    # (cascade delete-orphan), append ne mette una nuova.
     corso_esterno.equivalenze.clear()
     corso_esterno.equivalenze.append(Equivalenza(corso_interno_id=corso_interno_id))
 
-   # nessun sesison.ad, abbiamo gia gli oggetti nel database dobbiamo solo modificarli col commit
-
+    # Niente session.add: l'oggetto è già in sessione, basta il commit.
     try:
 
         interno = db.session.get(CorsoInterno, corso_interno_id)
@@ -411,17 +407,17 @@ def modifica_map(id_map: int):
         return jsonify(ok=False, errore=str(errore.orig).split("\n")[0]), 400
 
 # ============================================================================
-# GESTIONE MAPPING : ELIMINAZIONE
+# ELIMINA RIGA MAPPING
+# POST  /studente/la/mapping/<id>/elimina  ->  elimina_map
 # ============================================================================
-
-# Elimina una riga. Risponde JSON.
 @studente_bp.route("/la/mapping/<int:id_map>/elimina", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def elimina_map(id_map: int):
+    """Elimina una riga di mapping. Risposta JSON per AJAX."""
     corso = _corso_esterno_dello_studente(id_map)
     db.session.delete(corso)
-    #Facciamo solo il controllo per l'errore del possibile trigger, nessun integrity error
+    # Solo DatabaseError: un trigger sul DB può bloccare; IntegrityError no.
     try:
         db.session.commit()
         return jsonify(ok=True)
@@ -432,19 +428,15 @@ def elimina_map(id_map: int):
 
 
 # ============================================================================
-# GESTIONE DOCUMENTO : CREAZIONE
+# UTILITY DOCUMENTO
 # ============================================================================
 
 def _corsi_della_versione(versione):
-    """Ritorna una lista di corsi esterni della versione, con interpolati i corsi interni
+    """Corsi esterni della versione, con equivalenze e corsi interni già caricati.
 
-     Se faccio corsi = _corsi_della_versione(versione),
-     for corso_est in corsi:
-        print(f"Corso all'estero: {corso_est.titolo}")
-        for eq in corso_est.equivalenze:
-            # Questo non lancia query aggiuntive, i dati sono già in memoria!
-            print(f"  Riconosciuto a Ca' Foscari come: {eq.corso_interno.titolo}")
-     """
+    Così nel template (o in un for) si può leggere eq.corso_interno.titolo
+    senza altre query: i dati sono già in memoria.
+    """
     return db.session.scalars(
         sa.select(CorsoEsterno)
         .where(CorsoEsterno.learning_agreement_id == versione.id)
@@ -454,12 +446,14 @@ def _corsi_della_versione(versione):
     ).all()
 
 # ============================================================================
-# GESTIONE DOCUMENTO : CREAZIONE
+# DOCUMENTO PDF
+# GET  /studente/pratiche/<id>/la/documento.pdf  ->  documento_pdf
 # ============================================================================
 @studente_bp.route("/pratiche/<int:id_pratica>/la/documento.pdf")
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def documento_pdf(id_pratica: int):
+    """Anteprima o download del PDF generato dalla bozza."""
     pratica = _pratica_dello_studente(id_pratica)
     versione = _bozza_aperta(pratica)
     if versione is None:
@@ -467,6 +461,7 @@ def documento_pdf(id_pratica: int):
 
     pdf = genera_pdf_la(pratica, versione, _corsi_della_versione(versione))
 
+    # ?scarica=1 → download; altrimenti anteprima nel browser (inline)
     modo = "attachment" if request.args.get("scarica") else "inline"
     nome = f"LA-{pratica.codice_pratica}-v{versione.numero_versione}.pdf"
 
@@ -474,16 +469,19 @@ def documento_pdf(id_pratica: int):
         "Content-Disposition": f'{modo}; filename="{nome}"',
     })
 
-# Con GET ritorniamo la pagina di visualizzazione  del documento, con POST gestiamo la richiesta di creazione del documento
+# ============================================================================
+# DOCUMENTO LA (FIRMA)
+# GET/POST  /studente/pratiche/<id>/la/documento  ->  documento_la
+# ============================================================================
 @studente_bp.route("/pratiche/<int:id_pratica>/la/documento", methods=["GET", "POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def documento_la(id_pratica: int):
+    """GET: pagina di firma. POST: carica il PDF firmato e lo manda al docente."""
     pratica = _pratica_dello_studente(id_pratica)
     versione = _bozza_aperta(pratica)
     if versione is None:
         abort(404)
-    # FIXME finire il post che non funziona il caricamento
     if request.method == "POST":
         try:
             nome_disco, nome_originale = salva_documento(request.files.get("documento"))
@@ -495,9 +493,9 @@ def documento_la(id_pratica: int):
         versione.file_path = nome_disco
         versione.nome_file_originale = nome_originale
         db.session.flush()
-        # Da APERTA la pratica entra in valutazione. Durante la mobilita' invece
-        # resta MOBILITA_IN_CORSO: e' la versione in attesa a dire che c'e' una
-        # proposta pendente, non lo stato della pratica.
+        # Da APERTA entra in valutazione. In mobilità resta MOBILITA_IN_CORSO:
+        # è la versione IN_ATTESA a dire che c'è una proposta pendente,
+        # non lo stato della pratica.
         if pratica.stato == StatoPratica.APERTA:
             pratica.stato = StatoPratica.ATTESA_APPROVAZIONE_LA
 
@@ -506,7 +504,7 @@ def documento_la(id_pratica: int):
             db.session.commit()
         except sa.exc.DatabaseError as errore:
             db.session.rollback()
-            elimina_documento(nome_disco)      # il file era gia' su disco
+            elimina_documento(nome_disco)      # il file era già su disco: va tolto
             flash(str(errore.orig).split("\n")[0], "danger")
             return redirect(url_for("studente.documento_la", id_pratica=pratica.id))
 
@@ -519,18 +517,17 @@ def documento_la(id_pratica: int):
 
 
 # ============================================================================
-# DATE DELLA MOBILITA'
+# REGISTRA INIZIO
+# POST  /studente/pratiche/<id>/inizio  ->  registra_inizio
 # ============================================================================
-
 @studente_bp.route("/pratiche/<int:id_pratica>/inizio", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def registra_inizio(id_pratica: int):
     """Registra l'arrivo presso l'ateneo ospitante.
 
-    Data e stato stanno sulla stessa riga, quindi partono in un solo UPDATE:
-    qui non serve nessun flush. Il CHECK ck_pratica_stato_implica_inizio
-    verifica proprio che i due valori arrivino insieme.
+    Data e stato stanno sulla stessa riga → un solo UPDATE, niente flush.
+    Il CHECK ck_pratica_stato_implica_inizio vuole proprio che arrivino insieme.
     """
     pratica = _pratica_dello_studente(id_pratica)
 
@@ -540,7 +537,7 @@ def registra_inizio(id_pratica: int):
         flash("Data di arrivo non valida.", "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
-    # L'arrivo è un fatto già accaduto: al massimo oggi, come il rientro.
+    # L'arrivo è un fatto già accaduto: al massimo oggi (come il rientro).
     if giorno > dt.date.today():
         flash("La data di arrivo non può essere successiva a oggi.", "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
@@ -565,16 +562,16 @@ def registra_inizio(id_pratica: int):
 
 
 # ============================================================================
-# GESTIONE ESAMI
+# INSERIMENTO ESAMI
+# GET  /studente/pratiche/<id>/esami  ->  vedi_esami
 # ============================================================================
-
 @studente_bp.route("/pratiche/<int:id_pratica>/esami", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def vedi_esami(id_pratica: int):
-    """Mostra la pagina di inserimento voti allo studente."""
-    # Uso get() + esigi_accesso invece di _pratica_dello_studente per bypassare
-    # esigi_modifica() che bloccherebbe la pagina se la pratica non è APERTA.
+    """Pagina di inserimento voti allo studente."""
+    # get + esigi_accesso, non _pratica_dello_studente: esigi_modifica
+    # bloccherebbe perché lo stato non è più APERTA.
     pratica = db.session.get(Pratica, id_pratica)
     if pratica is None:
         abort(404)
@@ -587,6 +584,7 @@ def vedi_esami(id_pratica: int):
     approvata = _versione_approvata(pratica)
     corsi = _corsi_della_versione(approvata) if approvata else []
 
+    # Dizionario id_corso → esame: nel template si trova subito se c'è già un voto
     esami = {c.id: c.esame for c in corsi if c.esame}
 
     if corsi and all(
@@ -600,14 +598,14 @@ def vedi_esami(id_pratica: int):
     return render_template("pratiche/esami.html", pratica=pratica, corsi=corsi, esami=esami, valuta=False)
 
 # ============================================================================
-# GESTIONE ESAMI : CREA/MODIFICA
+# SALVA ESAME
+# POST  /studente/pratiche/<id>/esami/<id>/salva  ->  salva_esame
 # ============================================================================
-
 @studente_bp.route("/pratiche/<int:id_pratica>/esami/<int:id_corso>/salva", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def salva_esame(id_pratica: int, id_corso: int):
-    """Salva o aggiorna il voto di un esame (Chiamata JSON AJAX)."""
+    """Salva o aggiorna il voto di un esame. Risposta JSON per AJAX."""
     pratica = db.session.get(Pratica, id_pratica)
     esigi_accesso(pratica)
 
@@ -624,8 +622,8 @@ def salva_esame(id_pratica: int, id_corso: int):
     except ValueError:
         return jsonify(ok=False, errore="Data non valida."), 400
 
-    # Il riconoscimento usa la data del giorno in cui il docente decide.
-    # Una data futura non potrebbe mai essere minore o uguale a quella.
+    # Il riconoscimento confronta con la data in cui decide il docente:
+    # una data futura non potrebbe mai essere <= a quella.
     if data_esame > dt.date.today():
         return jsonify(
             ok=False,
@@ -642,7 +640,7 @@ def salva_esame(id_pratica: int, id_corso: int):
             errore="Il docente ha già deciso su questo voto e non si può più modificare.",
         ), 403
 
-    # Se c'era già, lo aggiorno. Altrimenti lo creo.
+    # Se c'era già un voto lo aggiorno, altrimenti lo creo
     if corso.esame:
         corso.esame.voto = voto
         corso.esame.data_esame = data_esame
@@ -658,14 +656,14 @@ def salva_esame(id_pratica: int, id_corso: int):
 
 
 # ============================================================================
-# GESTIONE ESAMI : ELIMINA
+# ELIMINA ESAME
+# POST  /studente/pratiche/<id>/esami/<id>/elimina  ->  elimina_esame
 # ============================================================================
-
 @studente_bp.route("/pratiche/<int:id_pratica>/esami/<int:id_corso>/elimina", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def elimina_esame(id_pratica: int, id_corso: int):
-    """Scarta un voto inserito (Chiamata JSON AJAX)."""
+    """Scarta un voto inserito. Risposta JSON per AJAX."""
     pratica = db.session.get(Pratica, id_pratica)
     esigi_accesso(pratica)
 
@@ -696,17 +694,16 @@ def elimina_esame(id_pratica: int, id_corso: int):
 
 # ============================================================================
 # REGISTRA RIENTRO
+# POST  /studente/pratiche/<id>/rientro  ->  registra_rientro
 # ============================================================================
-
 @studente_bp.route("/pratiche/<int:id_pratica>/rientro", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.STUDENTE)
 def registra_rientro(id_pratica: int):
-    """Registra il rientro e carica il Transcript of Records INSIEME."""
+    """Registra il rientro e carica il Transcript of Records insieme."""
     pratica = _pratica_dello_studente(id_pratica)
 
-    # Il piano deve essere fermo: una bozza o una modifica ancora in
-    # attesa del docente non possono convivere con il Transcript.
+    # Il piano deve essere fermo: una bozza in attesa non può convivere col Transcript.
     if _bozza_aperta(pratica) is not None:
         flash("Non puoi registrare il rientro: c'è ancora un piano in attesa.", "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
@@ -717,31 +714,29 @@ def registra_rientro(id_pratica: int):
         flash("Data di rientro non valida.", "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
-    # Il rientro è un fatto già accaduto: al massimo oggi. Senza questo
-    # limite si poteva scrivere una data ancora avanti, e la chiusura
-    # dell'ufficio (che è sempre oggi) restava prima del rientro.
+    # Il rientro è già avvenuto: al massimo oggi. Altrimenti la chiusura
+    # ufficio (sempre oggi) resterebbe prima del rientro.
     if giorno > dt.date.today():
         flash("La data di rientro non può essere successiva a oggi.", "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
     try:
-        # Salva il file PDF su disco
         nome_disco, nome_originale = salva_documento(request.files.get("documento"))
     except DocumentoNonValido as errore:
         flash(str(errore), "danger")
         return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
-    # 1. Aggiunge il Transcript al database
+    # 1. Transcript in sessione (file già su disco)
     db.session.add(Transcript(
         pratica_id=pratica.id,
         file_path=nome_disco,
         nome_file_originale=nome_originale,
     ))
 
-    # 2. FLUSH: La magia! Scrive il record temporaneamente così il trigger lo "vede"
+    # 2. Flush: scrive il record così il trigger "vede" già il Transcript
     db.session.flush()
 
-    # 3. Ora cambia lo stato. Il trigger scatta, controlla il Transcript, e lo trova!
+    # 3. Poi cambio stato: il trigger scatta e trova il documento
     pratica.data_fine_effettiva = giorno
     pratica.stato = StatoPratica.IN_RICONOSCIMENTO_ESAMI
 

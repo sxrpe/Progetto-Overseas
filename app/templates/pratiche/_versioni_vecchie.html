@@ -1,22 +1,5 @@
 {#
-  FRAMMENTO: le versioni precedenti del Learning Agreement.
-
-  NON ESTENDE base.html, ED E' VOLUTO
-      Questo file non produce una pagina ma un pezzo di pagina: lo script di
-      dettaglio.html lo chiede con fetch e lo infila dentro un div. Se
-      estendesse base.html arriverebbe un documento intero, con navbar e
-      piè di pagina, dentro una scheda.
-
-  VARIABILI ATTESE DALLA ROTTA
-      pratica    la Pratica
-      versioni   le versioni da mostrare, gia' escluse quelle in evidenza,
-                 dalla piu' recente alla piu' vecchia
-
-  PERCHE' ESISTE
-      Le versioni vecchie sono storia: interessano di rado, e caricare i
-      corsi di tutte a ogni apertura del dettaglio significherebbe pagare
-      sempre per un'informazione che quasi nessuno guarda. Qui si paga solo
-      chi la chiede.
+  Storico versioni del LA, frammento HTML (non una pagina intera).
 #}
 
 {% from "_frammenti.html" import esito_documento, data %}

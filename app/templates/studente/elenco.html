@@ -1,18 +1,6 @@
 {#
-  ELENCO DELLE PROPRIE PRATICHE (studente)  ->  FASE 7.2
-
-  ATTENZIONE, LA REGOLA PIU' IMPORTANTE DI QUESTO FILE:
-  qui NON si filtra. Il template riceve gia' solo le pratiche dello studente
-  collegato, perche' il filtro sta nella query dentro la route:
-      .where(Pratica.studente_id == current_user.id)
-  Caricare tutto e nascondere le righe altrui qui dentro non e' un filtro,
-  e' una falla di sicurezza.
-
-  PRESENTAZIONE
-  Schede Bootstrap (card), non tabelle: la traccia non lo impone, ma un
-  elenco di schede resta leggibile anche a finestra stretta durante il video.
-
-
+  Elenco pratiche dello studente.
+  Il filtro per utente sta nella rotta, non qui.
 #}
 
 {% extends "base.html" %}
@@ -23,7 +11,7 @@
 {% block contenuto %}
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h1 class="h4 mb-0">Le mie pratiche</h1>
-    {# Nessuna pratica, oppure tutte chiuse: si puo' aprirne un'altra. #}
+    {# Comparirà se non ci sono pratiche, oppure se sono tutte chiuse. #}
     {% if pratiche | rejectattr('stato', 'equalto', StatoPratica.CHIUSA) | list | length == 0 %}
       <a class="btn btn-dark" href="{{ url_for('studente.nuova_pratica') }}">Nuova pratica</a>
     {% endif %}

@@ -1,34 +1,13 @@
-"""Area dell'ufficio Overseas.
+"""
+DESCRIZIONE
+    Area ufficio Overseas: verifica pre-partenza e chiusura pratica.
+    Vede tutte le pratiche; non giudica il merito didattico (quello è del docente).
 
-ROTTE
-    GET   /ufficio/pratiche                     elenco di TUTTE le pratiche
-    GET   /ufficio/pratiche/<id>/la             il piano approvato, in lettura
-    POST  /ufficio/pratiche/<id>/verifica       registra la verifica pre-partenza
-    POST  /ufficio/pratiche/<id>/chiudi         chiude la pratica
-
-COSA FA L'UFFICIO, E COSA NON FA
-    Verifica che la pratica sia completa e la fa avanzare; chiude quando il
-    percorso e' finito. NON entra nel merito didattico: se un esame estero
-    valga davvero un esame di Ca' Foscari lo decide il docente referente.
-    Per questo l'ufficio vede il piano ma non ha nessun pulsante per
-    approvarlo.
-
-I DUE STATI DENTRO ATTESA_APPROVAZIONE_LA
-    La pratica resta in questo stato sia mentre il docente deve decidere,
-    sia dopo che ha approvato. A distinguerli e' l'esito della versione:
-
-        esiste una versione IN_ATTESA   -> tocca al docente
-        esiste una versione APPROVATO   -> tocca all'ufficio
-
-    L'elenco usa questa differenza per dividere le righe, ed e' il motivo
-    per cui la colonna dei giorni di attesa ha senso anche qui: sono le
-    pratiche che il docente sta trattenendo.
-
-LE DUE TRANSIZIONI DELL'UFFICIO
-    ATTESA_APPROVAZIONE_LA  -> PRE_PARTENZA_COMPLETATA
-    IN_RICONOSCIMENTO_ESAMI -> CHIUSA
-    Sono le uniche due righe di transizione_ammessa con ruolo UFFICIO.
-    Le precondizioni le verifica il trigger, non questo file.
+MAPPA
+    GET  /ufficio/pratiche                     elenco_pratiche          tutte le pratiche
+    GET  /ufficio/pratiche/<id>/la             vedi_la                  piano in sola lettura
+    POST /ufficio/pratiche/<id>/verifica       verifica_pre_partenza    registra verifica
+    POST /ufficio/pratiche/<id>/chiudi         chiudi_pratica           chiude la pratica
 """
 
 import datetime as dt
@@ -53,9 +32,8 @@ ufficio_bp = Blueprint("ufficio", __name__)
 def _pratica(id_pratica: int) -> Pratica:
     """Carica una pratica qualsiasi.
 
-    L'ufficio le vede tutte, quindi non c'e' nessun controllo di
-    appartenenza da fare: basta gestire l'id inventato. Il controllo di
-    ruolo lo ha gia' fatto @ruolo_richiesto sulla rotta.
+    L'ufficio le vede tutte: niente controllo, solo 404
+    se l'id non esiste.
     """
     pratica = db.session.get(Pratica, id_pratica)
     if pratica is None:
@@ -64,7 +42,7 @@ def _pratica(id_pratica: int) -> Pratica:
 
 
 def _versione_approvata(pratica: Pratica):
-    """La versione approvata con numero piu' alto, cioe' il piano valido."""
+    """Versione APPROVATO con numero più alto = piano valido."""
     migliore = None
     for versione in pratica.learning_agreements:
         if versione.esito != EsitoDocumento.APPROVATO:
@@ -75,16 +53,15 @@ def _versione_approvata(pratica: Pratica):
 
 
 def _versione_in_attesa(pratica: Pratica):
-    """La versione su cui il docente non ha ancora deciso, o None."""
+    """Versione IN_ATTESA con PDF già caricato (tocca al docente)."""
     for versione in pratica.learning_agreements:
-        # AGGIUNTO IL CONTROLLO SUL FILE_PATH
         if versione.esito == EsitoDocumento.IN_ATTESA and versione.file_path is not None:
             return versione
     return None
 
 
 def _corsi_della_versione(versione):
-    """I corsi della versione, con equivalenze e corsi interni gia' caricati."""
+    """Corsi della versione, con equivalenze e corsi interni già in memoria."""
     return db.session.scalars(
         sa.select(CorsoEsterno)
         .where(CorsoEsterno.learning_agreement_id == versione.id)
@@ -95,12 +72,10 @@ def _corsi_della_versione(versione):
 
 
 def _id_pronte_per_chiusura() -> set[int]:
-    """Gli id delle pratiche che l'ufficio puo' chiudere.
+    """Id delle pratiche chiudibili secondo la vista v_pratiche_pronte_per_chiusura.
 
-    La vista gia' esige tre cose: stato IN_RICONOSCIMENTO_ESAMI, Transcript
-    caricato, nessun esame rimasto NON_VALUTATO. Zero esami inseriti rientra,
-    perche' non c'e' nulla in sospeso. Il controllo sul PDF non sta qui:
-    lo fa l'ufficio dalla scheda, dove con zero esami compare l'avviso.
+    La vista chiede: stato IN_RICONOSCIMENTO_ESAMI, Transcript presente,
+    nessun esame ancora NON_VALUTATO (zero esami = ok, niente in sospeso).
     """
     righe = db.session.execute(
         sa.text("SELECT pratica_id FROM v_pratiche_pronte_per_chiusura")
@@ -109,19 +84,19 @@ def _id_pronte_per_chiusura() -> set[int]:
 
 
 # ============================================================================
-# ELENCO
+# ELENCO PRATICHE
+# GET  /ufficio/pratiche  ->  elenco_pratiche
 # ============================================================================
-
 @ufficio_bp.route("/pratiche", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.UFFICIO)
 def elenco_pratiche():
     """Tutte le pratiche, divise per chi deve muoversi.
 
-    Tre gruppi:
-        1. richiedono un intervento dell'ufficio
-        2. sono ferme dal docente  (con i giorni di attesa: e' il sollecito)
-        3. tutte le altre
+    Tre gruppi: da fare (ufficio), ferme dal docente (con giorni), le altre.
+    Dentro ATTESA_APPROVAZIONE_LA distinguono l'esito della versione:
+        IN_ATTESA = docente
+        APPROVATO  =  tocca all'ufficio (verifica pre-partenza)
     """
     pratiche = db.session.scalars(
         sa.select(Pratica)
@@ -137,13 +112,13 @@ def elenco_pratiche():
     pronte = _id_pronte_per_chiusura()
 
     da_fare = []        # tocca all'ufficio
-    dal_docente = []    # ferme in attesa di una decisione del docente
+    dal_docente = []    # ferme in attesa del docente
     le_altre = []
 
     for pratica in pratiche:
         in_attesa = _versione_in_attesa(pratica)
 
-        # --- 1. tocca all'ufficio? ---
+        # 1. tocca all'ufficio(piano approvato)
         if (pratica.stato == StatoPratica.ATTESA_APPROVAZIONE_LA
                 and in_attesa is None
                 and _versione_approvata(pratica) is not None):
@@ -156,17 +131,17 @@ def elenco_pratiche():
                             "giorni": None})
             continue
 
-        # --- 2. ferma dal docente? ---
+        # 2. ferma dal docente
         if in_attesa is not None:
             giorni = (dt.date.today() - in_attesa.data_caricamento).days
             dal_docente.append({"pratica": pratica, "azione": None,
                                 "giorni": giorni})
             continue
 
-        # --- 3. tutto il resto ---
+        # 3. tutto il resto
         le_altre.append({"pratica": pratica, "azione": None, "giorni": None})
 
-    # Le piu' ferme in cima: sono quelle da sollecitare.
+    # Le più ferme in cima: sono quelle da sollecitare.
     dal_docente.sort(key=lambda r: r["giorni"] or 0, reverse=True)
 
     return render_template("ufficio/elenco.html",
@@ -176,18 +151,16 @@ def elenco_pratiche():
 
 
 # ============================================================================
-# VISUALIZZAZIONE DEL PIANO
+# VISUALIZZAZIONE PIANO
+# GET  /ufficio/pratiche/<id>/la  ->  vedi_la
 # ============================================================================
-
 @ufficio_bp.route("/pratiche/<int:id_pratica>/la", methods=["GET"])
 @login_required
 @ruolo_richiesto(Ruolo.UFFICIO)
 def vedi_la(id_pratica: int):
-    """Il piano approvato, in sola lettura e senza comandi.
+    """Piano in sola lettura, senza pulsanti di decisione.
 
-    Riusa il template della mappatura con sola_lettura=True e
-    puo_decidere=False: l'ufficio guarda per verificare la completezza,
-    non per giudicare il merito.
+    Stesso template mappatura: sola_lettura=True, puo_decidere=False.
     """
     pratica = _pratica(id_pratica)
 
@@ -208,20 +181,16 @@ def vedi_la(id_pratica: int):
 
 
 # ============================================================================
-# AZIONI
+# VERIFICA PRE-PARTENZA
+# POST  /ufficio/pratiche/<id>/verifica  ->  verifica_pre_partenza
 # ============================================================================
-
 @ufficio_bp.route("/pratiche/<int:id_pratica>/verifica", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.UFFICIO)
 def verifica_pre_partenza(id_pratica: int):
-    """Registra che la fase pre-partenza e' completa.
+    """Registra la verifica pre-partenza e passa a PRE_PARTENZA_COMPLETATA.
 
-    Le tre colonne vanno riempite insieme: chi ha verificato, quando, e il
-    nuovo stato. Il vincolo ck_pratica_verifica_coerente impone che
-    verificata_da_id e pre_partenza_verificata_il siano entrambe piene o
-    entrambe vuote, e il trigger sulla transizione controlla che ci siano
-    davvero le condizioni per avanzare.
+    Tre campi insieme: chi ha verificato, quando, nuovo stato.
     """
     pratica = _pratica(id_pratica)
 
@@ -245,18 +214,18 @@ def verifica_pre_partenza(id_pratica: int):
     return redirect(url_for("pratiche.dettaglio", id_pratica=pratica.id))
 
 
+# ============================================================================
+# CHIUSURA PRATICA
+# POST  /ufficio/pratiche/<id>/chiudi  ->  chiudi_pratica
+# ============================================================================
 @ufficio_bp.route("/pratiche/<int:id_pratica>/chiudi", methods=["POST"])
 @login_required
 @ruolo_richiesto(Ruolo.UFFICIO)
 def chiudi_pratica(id_pratica: int):
-    """Chiude la pratica.
+    """Chiude la pratica (CHIUSA).
 
-    Il pulsante arriva se la vista dice che si puo': Transcript presente e
-    nessun esame ancora da valutare, anche quando di esami non ne e' stato
-    inserito nessuno. Il trigger rifa' lo stesso controllo in scrittura.
-
-    Dopo la chiusura trg_pratica_immutabile rende la riga di sola lettura
-    per tutti, ed e' quello che rende la chiusura un atto definitivo.
+    Il pulsante compare se la vista dice che si può: Transcript ok e nessun
+    esame ancora da valutare (anche con zero esami).
     """
     pratica = _pratica(id_pratica)
 

@@ -1,16 +1,16 @@
-"""Punto di ingresso dell'applicazione: l'interruttore che la accende.
+"""
+DESCRIZIONE
+    Punto di ingresso dell'applicazione.
+    Accende Flask e lascia a create_app() tutto il montaggio.
 
 AVVIO
     flask --app wsgi run --debug
-oppure, da PyCharm, con la configurazione "Flask server" che punta a questo file.
-
-Questo file e' volutamente minuscolo: tutto il montaggio dell'applicazione
-avviene dentro create_app(), in app/__init__.py. Lo apri una volta e non lo
-tocchi piu'.
+    oppure la configurazione Flask di PyCharm puntata a questo file.
 """
 
 from app import create_app
 
+# "dev" in lavorazione, "demo" in presentazione (vedi config.py).
 app = create_app("dev")
 
 if __name__ == "__main__":

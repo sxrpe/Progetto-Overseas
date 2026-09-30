@@ -1,18 +1,6 @@
 {#
-  ELENCO DELLE PRATICHE DI CUI IL DOCENTE E' REFERENTE.
-
-  VARIABILI ATTESE DALLA ROTTA
-      da_decidere   lista di {"pratica": ..., "giorni": ...}  in cima
-      le_altre      stessa forma, sotto
-
-  IL CRITERIO
-      Non un elenco neutro ma due gruppi: quello che aspetta una decisione
-      e tutto il resto. La colonna dei giorni di attesa e' la piu' utile
-      della pagina: e' l'unica che dice cosa rischia di essere dimenticato.
-
-  I GIORNI SONO CALCOLATI NELLA ROTTA
-      Jinja non fa conti sulle date. La rotta arriva con il numero gia'
-      pronto, il template lo colora e basta.
+  Elenco pratiche del docente referente.
+  Due gruppi dalla rotta: da_decidere e le_altre, con i giorni già calcolati.
 #}
 
 {% extends "base.html" %}
@@ -21,11 +9,7 @@
 {% block titolo %}Pratiche da valutare{% endblock %}
 
 
-{#
-  MACRO DELLA TABELLA.
-  Le due sezioni hanno le stesse colonne: scriverle due volte significherebbe
-  correggerle due volte.
-#}
+{# Stessa tabella per i due gruppi. #}
 {% macro tabella(righe, mostra_attesa) %}
 <div class="table-responsive">
   <table class="table align-middle mb-0">
@@ -101,7 +85,7 @@
   </p>
 </div>
 
-{# ---------- GRUPPO 1: RICHIEDONO UNA DECISIONE ---------- #}
+
 <div class="card mb-4 {% if da_decidere %}border-warning{% endif %}">
   <div class="card-header fw-semibold d-flex align-items-center gap-2">
     Richiedono una tua decisione
@@ -119,7 +103,7 @@
   {% endif %}
 </div>
 
-{# ---------- GRUPPO 2: TUTTE LE ALTRE ---------- #}
+
 <div class="card">
   <div class="card-header fw-semibold d-flex align-items-center gap-2">
     Le altre

@@ -1,29 +1,12 @@
 {#
-  REGISTRAZIONE E RICONOSCIMENTO ESAMI — FASE 7.9
-
-  Questa pagina serve a due ruoli, regolati dal flag `valuta`:
-    valuta=False (Studente) -> Inserisce voto e data per gli esami superati.
-    valuta=True  (Docente)  -> Vede i voti e clicca "Accetta" o "Rifiuta".
-
-  VARIABILI ATTESE DALLA ROTTA:
-    pratica    la Pratica in questione
-    corsi      lista dei CorsoEsterno dell'ultima versione APPROVATA
-    esami      dizionario { corso_esterno_id : oggetto Esame } per ricerca rapida
-    valuta     True se chi guarda è il docente e deve valutare
+  Pagina esami: inserimento voti, valutazione o sola lettura
+  a seconda dei flag valuta e sola_lettura.
 #}
 
 {% extends "base.html" %}
 
+{# Una riga: corso, voto, pulsanti studente o docente. #}
 {% macro riga_esame(corso, esame, valuta=false, sola_lettura=false) %}
-{#
-  Colori dei bordi:
-  Studente: default (grigio) se vuoto, primary (blu) se compilato.
-  Docente e sola lettura: secondary se non sostenuto, warning se da valutare,
-  success se accettato, danger se rifiutato.
-
-  sola_lettura nasconde i comandi: la stessa riga la vedono studente,
-  docente e ufficio, senza inserire voti e senza accettare o rifiutare.
-#}
 {% set stato_esame = esame.esito_riconoscimento if esame else 'ASSENTE' %}
 {% set guarda = valuta or sola_lettura %}
 {% set colore_bordo = 'secondary' %}
@@ -42,16 +25,13 @@
       data-url-valuta="{{ url_for('docente.salva_valutazione_esame', id_pratica=pratica.id, id_corso=corso.id) }}"
     {% endif %}>
 
-  {# ---------- VISTA COMPATTA ---------- #}
   <div class="riga-compatta d-flex align-items-center gap-3 p-3 flex-wrap {% if guarda and not esame %}bg-light text-muted{% endif %}">
 
-    {# Info Corso Esterno #}
     <div class="flex-grow-1">
       <span class="font-monospace small">{{ corso.codice }}</span><br>
       <span class="fw-semibold">{{ corso.titolo }}</span>
       <span class="small text-body-secondary">({{ corso.crediti }} CFU)</span>
 
-      {# Info Equivalenza Interna #}
       <div class="small mt-1">
         {% if corso.equivalenze %}
           <span class="text-success">&rarr;</span>
@@ -62,7 +42,6 @@
       </div>
     </div>
 
-    {# Info Voto / Stato #}
     <div class="text-end" style="min-width: 140px;">
       {% if esame %}
         <div class="fw-bold fs-5 text-{{ colore_bordo }}" data-campo="voto">
@@ -82,7 +61,6 @@
       {% endif %}
     </div>
 
-    {# Pulsanti Azione (Studente) #}
     {% if not sola_lettura and not valuta %}
       <div class="border-start ps-3 ms-2 text-center">
         {% if stato_esame in ['ACCETTATO', 'RIFIUTATO'] %}
@@ -98,7 +76,6 @@
       </div>
     {% endif %}
 
-    {# Pulsanti Azione (Docente) #}
     {% if not sola_lettura and valuta and esame %}
       <div class="border-start ps-3 ms-2 text-center" style="min-width: 120px;">
         <button type="button" class="btn btn-sm btn-success azione-docente-accetta w-100 mb-1" {% if stato_esame == 'ACCETTATO' %}disabled{% endif %}>
@@ -112,7 +89,6 @@
 
   </div>
 
-  {# ---------- PANNELLO ESPANDIBILE (Solo Studente) ---------- #}
   {% if not sola_lettura and not valuta and stato_esame not in ['ACCETTATO', 'RIFIUTATO'] %}
     <div class="riga-espansa d-none border-top bg-light">
       <div class="p-3">
@@ -145,11 +121,9 @@
 
 {% block contenuto %}
 
-{# Normalizzo i flag. sola_lettura: stessa pagina, senza comandi. #}
 {% set valuta = valuta | default(false) %}
 {% set sola_lettura = sola_lettura | default(false) %}
 
-{# Calcolo Statistiche #}
 {% set tot_corsi = corsi | length %}
 {% set ns = namespace(sostenuti=0, accettati=0, rifiutati=0, da_valutare=0) %}
 
@@ -162,7 +136,7 @@
   {% endif %}
 {% endfor %}
 
-{# ---------- INTESTAZIONE ---------- #}
+{# Intestazione e riepilogo. #}
 <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
   <div>
     <h1 class="h4 mb-1">{% if sola_lettura %}Esami{% elif valuta %}Valutazione Esami{% else %}Registrazione Esami{% endif %}</h1>
@@ -174,7 +148,6 @@
   <a href="{{ url_for('pratiche.dettaglio', id_pratica=pratica.id) }}" class="btn btn-outline-secondary">Torna alla pratica</a>
 </div>
 
-{# ---------- ISTRUZIONI E STATISTICHE ---------- #}
 <div class="row mb-4">
   <div class="col-md-8">
     <div class="alert alert-info py-2 small mb-0 h-100 d-flex flex-column justify-content-center">
@@ -218,7 +191,7 @@
 </div>
 
 
-{# ---------- LISTA ESAMI ---------- #}
+{# Lista dei corsi del piano. #}
 <ul class="list-unstyled mb-4" id="lista-esami">
   {% for corso in corsi %}
     {{ riga_esame(corso, esami.get(corso.id), valuta, sola_lettura) }}
@@ -246,6 +219,7 @@
 
 {% block script %}
 <script>
+// Esami: salva, scarta o valuta via fetch sulla riga cliccata.
 (function () {
   "use strict";
   const lista = document.getElementById("lista-esami");
@@ -262,12 +236,11 @@
     campo.max = oggiIso();
   });
 
-  // Usa l'evento delegato per tutta la lista
+  // Click sulla lista: apre, salva, scarta o valuta.
   lista.addEventListener("click", function (evento) {
     const riga = evento.target.closest(".riga");
     if (!riga) return;
 
-    // --- AZIONI STUDENTE ---
     if (evento.target.closest(".azione-modifica")) {
       riga.querySelector(".riga-espansa").classList.remove("d-none");
     }
@@ -277,7 +250,6 @@
     if (evento.target.closest(".azione-conferma")) salvaVoto(riga);
     if (evento.target.closest(".azione-elimina")) scartaVoto(riga);
 
-    // --- AZIONI DOCENTE ---
     if (evento.target.closest(".azione-docente-accetta")) valutaEsame(riga, 'ACCETTATO');
     if (evento.target.closest(".azione-docente-rifiuta")) valutaEsame(riga, 'RIFIUTATO');
   });

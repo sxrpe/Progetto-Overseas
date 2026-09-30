@@ -1,25 +1,7 @@
 {#
-  ELENCO DI TUTTE LE PRATICHE, PER L'UFFICIO OVERSEAS.
-
-  VARIABILI ATTESE DALLA ROTTA
-      da_fare      {"pratica", "azione", "giorni"}  azione: "verifica" | "chiudi"
-      dal_docente  stesse chiavi, con i giorni di attesa valorizzati
-      le_altre     stesse chiavi, senza azione
-
-  IL CRITERIO
-      Tre gruppi, nell'ordine in cui servono:
-        1. cosa devo fare io
-        2. cosa sto aspettando da qualcun altro   <- il sollecito
-        3. tutto il resto
-
-      Il secondo gruppo e' quello che nessun elenco per stato saprebbe
-      mostrare: quelle pratiche sono tutte in ATTESA_APPROVAZIONE_LA come
-      quelle del primo gruppo, ma il lavoro sta da un'altra parte.
-
-  I PULSANTI SONO FORM
-      Verifica e chiusura cambiano lo stato della pratica: sono POST, non
-      link. Un link farebbe avanzare una pratica al passaggio di un
-      programma che scarica le pagine.
+  Elenco pratiche per l'ufficio.
+  Tre gruppi dalla rotta: da_fare, dal_docente, le_altre.
+  Verifica e chiusura sono form POST, non link.
 #}
 
 {% extends "base.html" %}
@@ -122,7 +104,7 @@
   </p>
 </div>
 
-{# ---------- 1. TOCCA A NOI ---------- #}
+
 <div class="card mb-4 {% if da_fare %}border-primary{% endif %}">
   <div class="card-header fw-semibold d-flex align-items-center gap-2">
     Richiedono un tuo intervento
@@ -139,7 +121,7 @@
   {% endif %}
 </div>
 
-{# ---------- 2. FERME DAL DOCENTE ---------- #}
+
 <div class="card mb-4">
   <div class="card-header fw-semibold d-flex align-items-center gap-2">
     In attesa del docente referente
@@ -158,7 +140,7 @@
   {% endif %}
 </div>
 
-{# ---------- 3. TUTTE LE ALTRE ---------- #}
+
 <div class="card">
   <div class="card-header fw-semibold d-flex align-items-center gap-2">
     Le altre

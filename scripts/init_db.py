@@ -1,30 +1,20 @@
-"""Creazione dello schema del database.
+"""
+DESCRIZIONE
+    Crea le tabelle del database a partire dai modelli ORM.
+    Poi, su PostgreSQL, applica anche schema_extra_postgres.sql
+    (trigger, viste, indici che l'ORM non esprime).
+    Non inserisce dati: quello lo fa scripts/seed.py.
 
-USO, dalla cartella radice del progetto:
-
-    python -m scripts.init_db            crea le tabelle mancanti
-    python -m scripts.init_db --reset    cancella tutto e ricrea (DISTRUTTIVO)
-
-COSA FA, IN ORDINE
-    1. crea tabelle, chiavi, UNIQUE e CHECK a partire dai modelli ORM,
-       che sono l'unica definizione dello schema;
-    2. esegue schema_extra_postgres.sql, che aggiunge cio' che l'ORM non
-       esprime: trigger, viste, viste materializzate, indici parziali, ruoli;
-    3. NON inserisce dati: quello e' compito di scripts/seed.py.
-
-    Il passo 2 viene saltato da solo se il database non e' PostgreSQL.
-
-NOTA
-    Finche' app/models.py e' vuoto, questo script funziona ma crea zero
-    tabelle. E' normale: i modelli si scrivono in Fase 4.
+USO
+    python -m scripts.init_db
+    python -m scripts.init_db --reset
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-# Permette di lanciare lo script anche con "python scripts/init_db.py",
-# aggiungendo la cartella radice ai percorsi in cui Python cerca i moduli.
+# Consente di lanciare anche con python scripts/init_db.py.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import create_app  # noqa: E402
@@ -34,7 +24,7 @@ FILE_SQL_EXTRA = Path(__file__).resolve().parent / "schema_extra_postgres.sql"
 
 
 def esegui_sql_extra() -> None:
-    """Applica trigger, viste e indici non esprimibili nell'ORM."""
+    """Applica il file SQL aggiuntivo, se il database è PostgreSQL."""
     dialetto = db.engine.dialect.name
     if dialetto != "postgresql":
         print(f"  [salto] SQL aggiuntivo non eseguito: dialetto '{dialetto}'.")
@@ -44,35 +34,18 @@ def esegui_sql_extra() -> None:
         return
 
     testo = FILE_SQL_EXTRA.read_text(encoding="utf-8").strip()
-    if not testo or all(r.lstrip().startswith("--") or not r.strip()
-                        for r in testo.splitlines()):
+    if not testo or all(
+        r.lstrip().startswith("--") or not r.strip()
+        for r in testo.splitlines()
+    ):
         print("  [salto] File SQL aggiuntivo ancora vuoto.")
         return
 
-    # ------------------------------------------------------------------
-    # PERCHE' IL CURSORE GREZZO E NON conn.execute() O exec_driver_sql()
-    #
-    # Il PL/pgSQL usa il segno di percentuale come segnaposto nei messaggi:
-    #     RAISE EXCEPTION 'ruolo sbagliato (trovato: %)', r;
-    #
-    # psycopg usa lo STESSO simbolo per i propri parametri, e appena riceve
-    # una lista di parametri - anche vuota - analizza la stringa e si ferma
-    # su quel "%)" con:
-    #     only '%s', '%b', '%t' are allowed as placeholders
-    #
-    # exec_driver_sql passa sempre una tupla vuota, quindi fa scattare
-    # l'analisi. Chiedendo il cursore del driver ed eseguendo con il SOLO
-    # testo, senza secondo argomento, psycopg non guarda i percento e passa
-    # la stringa a PostgreSQL cosi' com'e' - che e' esattamente cio' che
-    # serve per uno script DDL.
-    #
-    # Nota: nemmeno sa.text() andrebbe bene, per un motivo diverso ma
-    # analogo: interpreterebbe i ":" dell'operatore := del PL/pgSQL come
-    # segnaposto di parametri.
-    #
-    # engine.begin() apre una transazione e fa commit da solo all'uscita:
-    # o passa tutto il file, o non passa niente.
-    # ------------------------------------------------------------------
+    # Si usa il cursore grezzo del driver, non conn.execute().
+    # Nel PL/pgSQL il simbolo % appare nei messaggi di errore, e psycopg
+    # lo interpreta come segnaposto dei parametri. Passando solo il testo,
+    # senza lista di parametri, la stringa arriva a PostgreSQL così com'è.
+    # Anche i ":" di := darebbero problemi con sa.text(), per lo stesso motivo.
     with db.engine.begin() as conn:
         cursore = conn.connection.cursor()
         try:
@@ -84,6 +57,7 @@ def esegui_sql_extra() -> None:
 
 
 def main() -> None:
+    """Crea lo schema, con reset opzionale delle tabelle esistenti."""
     parser = argparse.ArgumentParser(description="Crea lo schema del database.")
     parser.add_argument(
         "--reset", action="store_true",

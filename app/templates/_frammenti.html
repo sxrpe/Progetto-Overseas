@@ -1,33 +1,10 @@
 {#
-  FRAMMENTI RIUTILIZZABILI (macro Jinja).
-
-  Una macro e' una funzione che produce HTML. Serve per gli elementi che
-  compaiono in piu' pagine: se l'etichetta di stato appare in cinque template
-  e la scrivi cinque volte, cambiarla significa cambiarla cinque volte, e
-  dimenticarne una.
-
-  COME SI USA, da un altro template:
-      {% from "_frammenti.html" import stato_pratica %}
-      {{ stato_pratica(pratica.stato) }}
-
-  DA DOVE ARRIVANO StatoPratica, EsitoDocumento e simili
-      Sono registrate come variabili globali di Jinja in create_app():
-          app.jinja_env.globals.update(StatoPratica=StatoPratica, ...)
-      Per questo si possono usare in qualunque template senza passarle a
-      render_template() ogni volta.
-
-  ATTENZIONE alle macro: NON vedono le variabili globali del template che le
-  chiama, ma quelle registrate in jinja_env.globals si', perche' sono
-  dell'ambiente e non del singolo template.
+  Macro riusate: badge di stato, esiti, periodo, date.
+  Si importano con {% from "_frammenti.html" import stato_pratica %}.
 #}
 
 
-{# --------------------------------------------------------------------------
-   ETICHETTA DI STATO DELLA PRATICA.
-
-   Il colore e il testo leggibile arrivano dai dizionari in app/enums.py:
-   cosi' sono definiti una volta sola e valgono ovunque, template compresi.
-   -------------------------------------------------------------------------- #}
+{# Badge stato pratica. #}
 {% macro stato_pratica(stato) %}
   <span class="badge text-bg-{{ StatoPratica.COLORI.get(stato, 'secondary') }}">
     {{ StatoPratica.ETICHETTE.get(stato, stato) }}
@@ -35,9 +12,7 @@
 {% endmacro %}
 
 
-{# --------------------------------------------------------------------------
-   ESITO DI UN LEARNING AGREEMENT: in attesa / approvato / rifiutato.
-   -------------------------------------------------------------------------- #}
+{# Badge esito Learning Agreement. #}
 {% macro esito_documento(esito) %}
   <span class="badge text-bg-{{ EsitoDocumento.COLORI.get(esito, 'secondary') }}">
     {{ EsitoDocumento.ETICHETTE.get(esito, esito) }}
@@ -45,9 +20,7 @@
 {% endmacro %}
 
 
-{# --------------------------------------------------------------------------
-   ESITO DEL RICONOSCIMENTO DI UN ESAME.
-   -------------------------------------------------------------------------- #}
+{# Badge riconoscimento esame. #}
 {% macro esito_riconoscimento(esito) %}
   <span class="badge text-bg-{{ EsitoRiconoscimento.COLORI.get(esito, 'secondary') }}">
     {{ EsitoRiconoscimento.ETICHETTE.get(esito, esito) }}
@@ -55,33 +28,20 @@
 {% endmacro %}
 
 
-{# --------------------------------------------------------------------------
-   PERIODO DELLA MOBILITA', in forma leggibile.
-   -------------------------------------------------------------------------- #}
+{# Periodo in forma leggibile. #}
 {% macro periodo(valore) %}
   {{ Periodo.ETICHETTE.get(valore, valore) }}
 {% endmacro %}
 
 
-{# --------------------------------------------------------------------------
-   DATA in formato italiano, oppure un trattino se non c'e'.
-
-   Serve piu' spesso di quanto sembri: meta' delle date dello schema sono
-   nullabili, e senza questo controllo il template stamperebbe "None".
-   -------------------------------------------------------------------------- #}
+{# Data gg/mm/aaaa, oppure trattino. #}
 {% macro data(valore) %}
   {% if valore %}{{ valore.strftime('%d/%m/%Y') }}{% else %}<span
     class="text-body-secondary">—</span>{% endif %}
 {% endmacro %}
 
 
-{# --------------------------------------------------------------------------
-   CAMPO DI UN FORM con etichetta ed eventuale messaggio d'errore.
-
-   Da usare quando comincerete a fare form con validazione. Per ora i due
-   form esistenti (login) sono scritti a mano, ed e' giusto cosi': creare
-   un'astrazione per un elemento usato una volta sola e' tempo perso.
-   -------------------------------------------------------------------------- #}
+{# Campo form con etichetta (poco usato). #}
 {% macro campo(nome, etichetta, valore='', tipo='text', errore=None,
                obbligatorio=True, aiuto=None) %}
   <div class="mb-3">
@@ -93,6 +53,3 @@
     {% if errore %}<div class="invalid-feedback">{{ errore }}</div>{% endif %}
   </div>
 {% endmacro %}
-
-
-

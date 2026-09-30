@@ -1,8 +1,5 @@
 {#
-  HOME.
-
-  Due facce: chi non e' entrato vede una presentazione e il pulsante per
-  accedere; chi e' entrato vede la propria area.
+  Home: presentazione per chi non è entrato, area personale per chi lo è.
 #}
 {% extends "base.html" %}
 
@@ -19,7 +16,6 @@
 
 {% if current_user.is_authenticated %}
 
-  {# ---------- UTENTE COLLEGATO ------------------------------------- #}
   <div class="card mb-3">
     <div class="card-body">
       <h2 class="h5">Ciao {{ current_user.nome }}</h2>
@@ -31,11 +27,6 @@
         {% endif %}
       </p>
 
-      {#
-        Le tre aree si accendono quando le rotte esistono. Per ora resta il
-        testo, cosi' la pagina si apre senza errori: url_for() su una rotta
-        inesistente non da' una pagina brutta, da' un'eccezione.
-      #}
       {% if current_user.e_studente %}
         <p class="mb-0">Da qui potrai creare le tue pratiche di mobilità,
           compilare il Learning Agreement e caricare i documenti.</p>
@@ -43,15 +34,14 @@
         <p class="mb-0">Da qui potrai valutare i Learning Agreement delle
           pratiche di cui sei referente e riconoscere gli esami sostenuti.</p>
       {% elif current_user.e_ufficio %}
-        <p class="mb-0">Da qui potrai verificare le pratiche pre-partenza,
-          gestire gli istituti partner e chiudere le pratiche concluse.</p>
+        <p class="mb-0">Da qui potrai verificare le pratiche pre-partenza
+          e chiudere le pratiche concluse.</p>
       {% endif %}
     </div>
   </div>
 
 {% else %}
 
-  {# ---------- VISITATORE ------------------------------------------- #}
   <div class="card mb-3">
     <div class="card-body">
       <p>Il programma Overseas permette a studenti e studentesse di Ca' Foscari
@@ -63,14 +53,5 @@
   </div>
 
 {% endif %}
-
-{# ---------- DIAGNOSI ------------------------------------------------ #}
-{#
-  Riquadro tecnico, utile durante lo sviluppo: dice se il database risponde
-  davvero, non se e' configurato. Va tolto prima della consegna.
-#}
-<div class="alert {{ 'alert-success' if db_ok else 'alert-danger' }} mb-0">
-  <span class="fw-semibold">Database:</span> {{ db_messaggio }}
-</div>
 
 {% endblock %}

@@ -1,15 +1,8 @@
-"""Configurazione dell'applicazione.
-
-COSA FA QUESTO FILE
-    Legge le variabili dal file .env e le trasforma in una classe di
-    configurazione che Flask sa usare. Nessuna password e nessuna chiave
-    segreta e' scritta qui dentro: tutto arriva da .env, che non si versiona.
-
-QUANDO LO TOCCHI
-    Quando aggiungi una nuova impostazione (Fase 0 e poi raramente).
-
-NON METTERE QUI
-    Logica dell'applicazione. Questo file legge configurazione e basta.
+"""
+DESCRIZIONE
+    Legge il file .env e lo traduce in classi di configurazione per Flask.
+    Non contiene logica applicativa, solo impostazioni.
+    Chiavi e password restano nel .env, fuori dal repository.
 """
 
 import os
@@ -17,54 +10,57 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Cartella radice del progetto, calcolata a partire da questo file.
-# Serve per costruire percorsi assoluti: un percorso relativo cambia
-# significato a seconda della cartella da cui lanci il programma.
+# Cartella radice del progetto, usata per costruire percorsi assoluti.
 BASE_DIR = Path(__file__).resolve().parent
 
-# Carica le variabili dal file .env dentro os.environ.
+# Carica le variabili del .env in os.environ.
 load_dotenv(BASE_DIR / ".env")
 
 
 class Config:
     """Impostazioni comuni a tutti gli ambienti."""
 
-    # --- sicurezza ---------------------------------------------------------
+    # Firma i cookie di sessione, così il login resta certificato.
     SECRET_KEY = os.environ.get("SECRET_KEY", "chiave-di-sviluppo-da-cambiare")
 
-    # --- database ----------------------------------------------------------
-    # Se DATABASE_URL non e' impostata si ripiega su SQLite, cosi' il progetto
-    # parte comunque anche su una macchina senza PostgreSQL.
+    # Indirizzo del database. Se manca DATABASE_URL si usa un SQLite locale.
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL", f"sqlite:///{BASE_DIR / 'overseas.db'}"
     )
 
-    # Deprecata e inutile: consuma memoria senza darci nulla.
+    # Opzione deprecata di SQLAlchemy, lasciata disattivata.
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # Stampa l'SQL generato quando nel .env c'e' SQL_ECHO=1.
+    # Con SQL_ECHO=1 l'applicazione stampa l'SQL generato in console.
     SQLALCHEMY_ECHO = os.environ.get("SQL_ECHO", "0") == "1"
 
-    # pool_pre_ping verifica che la connessione sia ancora viva prima di
-    # riusarla: evita l'errore che compare dopo un riavvio del database.
+    # Prima di riusare una connessione controlla che sia ancora disponibile.
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
 
-    # --- upload dei documenti ----------------------------------------------
+    # Cartella, dimensione massima ed estensioni ammesse per i documenti.
     UPLOAD_FOLDER = BASE_DIR / os.environ.get("UPLOAD_FOLDER", "uploads")
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", 10)) * 1024 * 1024
     ALLOWED_UPLOAD_EXTENSIONS = {".pdf"}
 
 
-class DevConfig(Config):
-    """Sviluppo: pagina di errore dettagliata e ricaricamento automatico."""
 
+# CLASSI DI DEBUG
+class DevConfig(Config):
+    """Ambiente di sviluppo, con messaggi di errore dettagliati."""
     DEBUG = True
 
 
 class DemoConfig(Config):
-    """Registrazione del video: niente pagine di debug nella demo."""
+    """Ambiente per la presentazione.
 
+    In sviluppo DEBUG mostra a schermo lo stack trace completo quando qualcosa
+    va storto.
+    Si attiva mettendo create_app("demo") al posto di create_app("dev") in
+    wsgi.py. Database, upload e secret key restano quelli di Config: cambia
+    solo questo comportamento a schermo.
+    """
     DEBUG = False
 
 
+# create_app("dev") usa DevConfig, create_app("demo") usa DemoConfig.
 CONFIGS = {"dev": DevConfig, "demo": DemoConfig}
